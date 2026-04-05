@@ -1,13 +1,13 @@
 # Hubitat Dahua Camera Notifications
 
-**Version:** 0.3.2  
+**Version:** 0.3.3  
 **Author:** Brian Pavane  
 **Namespace:** `bpavane`  
 **Category:** Safety & Security  
 
 Read-only Hubitat integration for Dahua NVRs that discovers recorder-connected cameras, creates one Hubitat child device per camera, and maps Dahua motion-related events into Hubitat automations.
 
-Version `0.3.2` is an early field-test release focused on:
+Version `0.3.3` is an early field-test release focused on:
 
 - Dahua NVR discovery
 - one child device per discovered camera channel
@@ -32,7 +32,7 @@ Expect some model-specific differences during early testing. Extra debug logging
 - [ROADMAP.md](ROADMAP.md): roadmap
 - [CHANGELOG.md](CHANGELOG.md): release history
 
-## Features in 0.3.2
+## Features in 0.3.3
 
 - Connect to a Dahua NVR over the local network
 - Discover attached camera channels
@@ -58,7 +58,7 @@ Expect some model-specific differences during early testing. Extra debug logging
 
 ## Current v1 Scope
 
-Version `0.3.2` is read-only. It does not:
+Version `0.3.3` is read-only. It does not:
 
 - change camera or NVR settings
 - enable or disable Dahua analytics
@@ -192,6 +192,77 @@ When upgrading from an older release, update all three code files before opening
 4. If Hubitat shows old compile errors during import, clear the editor contents and import the versioned URL again.
 
 The `main` branch raw URLs track the latest published code. If Hubitat appears to cache an older import, clear the editor and re-import.
+
+### Upgrade Safety and Recommended Steps
+
+For normal upgrades, it is safe to re-import all three code files:
+
+- `Dahua NVR Sync` app
+- `Dahua NVR` parent driver
+- `Dahua Camera` child driver
+
+You do not normally need to delete and recreate:
+
+- the installed app instance
+- the parent device
+- the child camera devices
+
+Recommended upgrade flow:
+
+1. Re-import the parent driver.
+2. Re-import the child driver.
+3. Re-import the app code.
+4. Open the installed app under **Apps**.
+5. Click **Done** once.
+
+That final **Done** is the important step because it lets the updated app:
+
+- re-apply staged camera configuration
+- refresh parent metadata such as camera count
+- re-subscribe event routing if needed
+- reopen the parent event stream with the latest logic
+
+### Do I Need to Press Refresh Anywhere?
+
+Usually:
+
+- **App:** Yes, open the app and click **Done** after upgrade
+- **Parent device:** Optional, but recommended if the event stream does not come back on its own
+- **Child devices:** No manual refresh is normally needed
+
+If the parent device still looks stale after upgrade:
+
+1. Open the **Dahua NVR** parent device.
+2. Press **Refresh** once.
+3. Wait a few seconds and review:
+   - `Network Status`
+   - `Event Stream Status`
+   - `Connection Phase`
+   - `Last Socket Status`
+   - `Last HTTP Status Line`
+   - `Last Error`
+
+Use parent refresh when:
+
+- the parent still shows an older camera count
+- the event stream appears stuck in reconnecting
+- you want to force the latest stream-opening logic after upgrading
+
+### When Would More Than Re-Import Be Needed?
+
+Usually not needed, but consider deeper cleanup only if:
+
+- the parent device still shows obviously stale state after app **Done** and parent **Refresh**
+- child devices were created with incorrect device network IDs by a much older version
+- Hubitat appears to be holding cached code that does not match the imported source
+
+In those cases:
+
+- first try app **Done**
+- then try parent **Refresh**
+- then run **Discover / Re-sync Cameras** from the app
+
+Only if those steps fail should you consider removing and rebuilding devices.
 
 ### Option B — Manual paste
 
@@ -330,4 +401,4 @@ These are the most likely areas to need adaptation as real devices are tested.
 
 ## Release
 
-Current release: `0.3.2`
+Current release: `0.3.3`

@@ -3,7 +3,7 @@ import groovy.json.JsonSlurper
 import groovy.transform.Field
 import java.security.MessageDigest
 
-@Field static final String DRIVER_VERSION = "0.3.2"
+@Field static final String DRIVER_VERSION = "0.3.3"
 @Field static final List<Integer> RECONNECT_SCHEDULE_SECONDS = [5, 15, 30, 60]
 @Field static final Integer MAX_STREAM_BUFFER_BYTES = 131072
 @Field static final Integer HANDSHAKE_TIMEOUT_SECONDS = 15

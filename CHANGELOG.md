@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.3.3] - 2026-04-05
+
+### Added
+
+- README guidance for safe upgrades, including when to re-import code, when to open the app and press **Done**, and when parent **Refresh** is useful
+
 ## [0.3.2] - 2026-04-05
 
 ### Added
