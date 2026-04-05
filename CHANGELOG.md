@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.3.5] - 2026-04-05
+
+### Added
+
+- Expanded parent-device diagnostics with probe status, probe HTTP status, header sample, request preview, raw chunk count, stream buffer size, and rolling connection trace
+- Added regression coverage for parent diagnostic redaction and richer event-stream lifecycle tracing
+
+### Fixed
+
+- Parent diagnostics now redact plaintext passwords and digest authorization headers in error and status fields
+- Parent `connectionPhase` no longer appears stuck on `probing_auth` once the socket-open phase begins
+- Parent `streamBufferBytes` now reflects the remaining buffered data after event chunks are consumed
+
 ## [0.3.4] - 2026-04-05
 
 ### Added

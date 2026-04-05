@@ -24,7 +24,10 @@ class DahuaNVRDriverSpec extends Specification {
         then:
         harness.rawSocket.connections.size() == 1
         harness.device.currentValue('eventStreamStatus') == 'reconnecting'
-        harness.device.currentValue('connectionPhase') == 'probing_auth'
+        harness.device.currentValue('connectionPhase') == 'opening_socket'
+        harness.device.currentValue('lastProbeStatus') == 'digest_challenge_received'
+        harness.device.currentValue('lastProbeHttpStatus') == '401'
+        harness.device.currentValue('connectionTrace').contains('Prepared digest auth from HTTP probe challenge')
 
         when:
         driver.socketStatus('status: open')
@@ -32,6 +35,7 @@ class DahuaNVRDriverSpec extends Specification {
         then:
         harness.rawSocket.sentMessages[0].contains('GET /cgi-bin/eventManager.cgi?action=attach&codes=[All]&heartbeat=5 HTTP/1.1')
         harness.device.currentValue('connectionPhase') == 'sending_preauthenticated_request'
+        harness.device.currentValue('lastRequestPreview').contains('GET /cgi-bin/eventManager.cgi?action=attach&codes=[All]&heartbeat=5 HTTP/1.1')
 
         when:
         driver.parse('HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Digest realm="Login to Dahua", nonce="abc123", qop="auth"\r\n\r\n')
@@ -49,12 +53,15 @@ class DahuaNVRDriverSpec extends Specification {
         harness.device.currentValue('eventStreamStatus') == 'connected'
         harness.device.currentValue('lastEventReceived') != null
         harness.device.currentValue('rawEvent').contains('"code":"VideoMotion"')
+        harness.device.currentValue('lastHeaderSample').contains('HTTP/1.1 200 OK')
+        harness.device.currentValue('rawChunkCount') == 3
+        harness.device.currentValue('streamBufferBytes') == 0
         harness.logsAt('INFO').any { it.contains('Motion event received (ch 1): VideoMotion start') }
         !harness.state.connection.containsKey('password')
         harness.settings.nvrPassword == 'secret'
         harness.device.currentValue('lastHttpStatusLine') == 'HTTP/1.1 200 OK'
         harness.logsAt('DEBUG').any { it.contains('Raw socket connect invoked using') }
-        harness.logsAt('DEBUG').any { it.contains('Prepared Dahua event-stream digest authorization from HTTP probe') }
+        harness.logsAt('DEBUG').any { it.contains('Prepared digest auth from HTTP probe challenge') }
     }
 
     def "refresh does not force connected state and removes legacy password from connection state"() {
@@ -72,6 +79,24 @@ class DahuaNVRDriverSpec extends Specification {
         !harness.state.connection.containsKey('password')
         harness.device.currentValue('eventStreamStatus') == 'reconnecting'
         harness.rawSocket.connections.size() == 1
+    }
+
+    def "parent error and status diagnostics redact plaintext passwords and auth headers"() {
+        given:
+        def harness = new HubitatScriptHarness()
+        def driver = harness.loadScript('DahuaNVRDriver.groovy')
+        driver.applyConnectionSettings('{"host":"192.168.1.10","port":80,"username":"admin","password":"secret","serialNumber":"ABC123","model":"Dahua NVR","cameraCount":4,"eventCodes":["All"],"debugEnabled":true}')
+
+        when:
+        driver.socketStatus('send error: Authorization: Digest username="admin", realm="Login", response="xyz", password="secret"')
+
+        then:
+        harness.device.currentValue('lastError').contains('[REDACTED]')
+        !harness.device.currentValue('lastError').contains('secret')
+        !harness.device.currentValue('lastSocketStatus').contains('secret')
+        harness.logsAt('WARN').every { !it.contains('secret') }
+        harness.logsAt('DEBUG').every { !it.contains('secret') }
+        harness.device.currentValue('connectionTrace').contains('[REDACTED]')
     }
 
     def "socket closure schedules reconnect with bounded backoff"() {
@@ -103,6 +128,7 @@ class DahuaNVRDriverSpec extends Specification {
         harness.rawSocket.sentMessages.size() == 1
         harness.rawSocket.sentMessages[0].contains('GET /cgi-bin/eventManager.cgi?action=attach&codes=[All]&heartbeat=5 HTTP/1.1')
         harness.device.currentValue('connectionPhase') == 'sending_initial_request'
+        harness.device.currentValue('connectionTrace').contains('forcing initial request')
         harness.scheduled.any { it.method == 'handshakeWatchdog' && it.delay == 25 }
     }
 
@@ -129,10 +155,10 @@ class DahuaNVRDriverSpec extends Specification {
 
         then:
         harness.device.currentValue('lastRequestPath') == '/cgi-bin/eventManager.cgi?action=attach&codes=[All]'
-        harness.device.currentValue('connectionPhase') == 'probing_auth'
+        harness.device.currentValue('connectionPhase') == 'opening_socket'
         harness.rawSocket.connections.size() == 2
         !harness.scheduled.any { it.method == 'attemptReconnect' }
-        harness.logsAt('DEBUG').any { it.contains('Retrying Dahua event stream with alternate request path') }
+        harness.logsAt('DEBUG').any { it.contains('Retrying alternate event path') }
     }
 
     def "oversized event buffer is cleared and reconnect is scheduled"() {

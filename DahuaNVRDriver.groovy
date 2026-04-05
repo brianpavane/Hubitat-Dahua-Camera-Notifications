@@ -3,10 +3,11 @@ import groovy.json.JsonSlurper
 import groovy.transform.Field
 import java.security.MessageDigest
 
-@Field static final String DRIVER_VERSION = "0.3.4"
+@Field static final String DRIVER_VERSION = "0.3.5"
 @Field static final List<Integer> RECONNECT_SCHEDULE_SECONDS = [5, 15, 30, 60]
 @Field static final Integer MAX_STREAM_BUFFER_BYTES = 131072
 @Field static final Integer HANDSHAKE_TIMEOUT_SECONDS = 25
+@Field static final Integer MAX_TRACE_ENTRIES = 12
 @Field static final List<String> EVENT_PATH_CANDIDATES = [
     "/cgi-bin/eventManager.cgi?action=attach&codes=[All]&heartbeat=5",
     "/cgi-bin/eventManager.cgi?action=attach&codes=[All]"
@@ -50,6 +51,13 @@ metadata {
         attribute "connectionPhase", "string"
         attribute "lastRequestPath", "string"
         attribute "lastRawMessageSample", "string"
+        attribute "lastProbeStatus", "string"
+        attribute "lastProbeHttpStatus", "string"
+        attribute "lastHeaderSample", "string"
+        attribute "lastRequestPreview", "string"
+        attribute "streamBufferBytes", "number"
+        attribute "rawChunkCount", "number"
+        attribute "connectionTrace", "string"
 
         command "applyConnectionSettings", [[name: "json", type: "STRING"]]
         command "openEventStream"
@@ -120,10 +128,14 @@ def openEventStream() {
     state.precomputedAuthorization = null
     state.eventPathIndex = ((state.eventPathIndex ?: 0) as Integer)
     state.lastRequestPath = eventPath()
+    state.rawChunkCount = 0
     sendEvent(name: "lastRequestPath", value: state.lastRequestPath)
     sendEvent(name: "lastConnectAttempt", value: nowIso())
-    sendEvent(name: "connectionPhase", value: "opening_socket")
+    sendEvent(name: "rawChunkCount", value: 0)
+    sendEvent(name: "streamBufferBytes", value: 0)
+    traceConnection("Opening event stream using path ${state.lastRequestPath}", "open_event_stream")
     prepareEventRequest()
+    sendEvent(name: "connectionPhase", value: "opening_socket")
     connectSocket()
 }
 
@@ -153,6 +165,12 @@ def initializeParentState() {
     if (device.currentValue("cameraCount") == null) {
         sendEvent(name: "cameraCount", value: 0)
     }
+    if (device.currentValue("streamBufferBytes") == null) {
+        sendEvent(name: "streamBufferBytes", value: 0)
+    }
+    if (device.currentValue("rawChunkCount") == null) {
+        sendEvent(name: "rawChunkCount", value: 0)
+    }
 }
 
 private void prepareEventRequest() {
@@ -162,19 +180,24 @@ private void prepareEventRequest() {
     }
 
     sendEvent(name: "connectionPhase", value: "probing_auth")
+    sendEvent(name: "lastProbeStatus", value: "starting")
+    sendEvent(name: "lastProbeHttpStatus", value: "")
     String path = eventPath()
-    debugLog "Probing Dahua event-stream auth using ${path}"
+    traceConnection("Probing auth via HTTP for ${path}", "probing_auth")
 
     try {
         httpGet(uri: "http://${config.host}:${config.port ?: 80}", path: path, timeout: 10) { resp ->
+            sendEvent(name: "lastProbeHttpStatus", value: "${resp?.status ?: ''}")
             if (resp?.status == 200) {
                 state.precomputedAuthorization = null
-                debugLog "Event-stream auth probe returned 200 without digest challenge"
+                sendEvent(name: "lastProbeStatus", value: "http_200_no_challenge")
+                traceConnection("HTTP probe returned 200 without digest challenge", "probing_auth")
             }
         }
         return
     } catch (Exception e) {
         Integer statusCode = extractStatusCode(e)
+        sendEvent(name: "lastProbeHttpStatus", value: statusCode != null ? statusCode.toString() : "")
         if (statusCode == 401) {
             String headerValue = extractHeaderValue(e, "WWW-Authenticate")
             Map challenge = parseDigestChallengeHeader(headerValue)
@@ -191,14 +214,17 @@ private void prepareEventRequest() {
                     nc,
                     cnonce
                 )
-                debugLog "Prepared Dahua event-stream digest authorization from HTTP probe"
+                sendEvent(name: "lastProbeStatus", value: "digest_challenge_received")
+                traceConnection("Prepared digest auth from HTTP probe challenge", "probing_auth")
                 return
             }
-            debugLog "HTTP probe returned 401 without a usable digest challenge"
+            sendEvent(name: "lastProbeStatus", value: "http_401_without_digest")
+            traceConnection("HTTP probe returned 401 without a usable digest challenge", "probing_auth")
             return
         }
 
-        debugLog "Event-stream auth probe failed for ${path}: ${e.message}"
+        sendEvent(name: "lastProbeStatus", value: "probe_failed")
+        traceConnection("HTTP probe failed for ${path}: ${e.message}", "probing_auth")
     }
 }
 
@@ -206,13 +232,13 @@ private void connectSocket() {
     Map config = state.connection ?: [:]
     try {
         updateConnectionStatus("reconnecting", "reconnecting")
-        debugLog "Opening Dahua raw socket to ${config.host}:${config.port} for ${state.lastRequestPath}"
+        traceConnection("Opening raw socket to ${config.host}:${config.port}", "opening_socket")
         try {
             interfaces.rawSocket.connect("${config.host}:${config.port}", byteInterface: false)
-            debugLog "Raw socket connect invoked using host:port form"
+            traceConnection("Raw socket connect invoked using host:port form", "opening_socket")
         } catch (MissingMethodException ignored) {
             interfaces.rawSocket.connect(config.host as String, config.port as Integer, byteInterface: false)
-            debugLog "Raw socket connect invoked using host,port form"
+            traceConnection("Raw socket connect invoked using host,port form", "opening_socket")
         }
         // Some Hubitat environments do not reliably emit `status: open`; this fallback
         // pushes the initial HTTP request if the socket stays pending for too long.
@@ -226,17 +252,20 @@ private void connectSocket() {
 private void sendInitialUnauthenticatedRequest() {
     state.awaitingResponseHeaders = true
     state.streamBuffer = ""
+    sendEvent(name: "streamBufferBytes", value: 0)
     String authorizationHeader = state.precomputedAuthorization as String
     String phase = authorizationHeader ? "sending_preauthenticated_request" : "sending_initial_request"
     sendEvent(name: "connectionPhase", value: phase)
-    debugLog "Sending Dahua event-stream request to ${state.lastRequestPath}${authorizationHeader ? ' with precomputed digest auth' : ''}"
-    interfaces.rawSocket.sendMessage(buildHttpRequest(eventPath(), authorizationHeader))
+    String request = buildHttpRequest(eventPath(), authorizationHeader)
+    sendEvent(name: "lastRequestPreview", value: abbreviate(redactSensitive(request), 200))
+    traceConnection("Sending event-stream request${authorizationHeader ? ' with precomputed digest auth' : ''}", phase)
+    interfaces.rawSocket.sendMessage(request)
     runIn(HANDSHAKE_TIMEOUT_SECONDS, "handshakeWatchdog")
 }
 
 def forceInitialRequestIfPending() {
     if (state.pendingInitialRequest == true && state.manualClose != true) {
-        debugLog "Socket open status not observed promptly; sending initial request anyway"
+        traceConnection("Socket open status not observed promptly; forcing initial request", "forcing_initial_request")
         state.pendingInitialRequest = false
         sendInitialUnauthenticatedRequest()
     }
@@ -244,6 +273,7 @@ def forceInitialRequestIfPending() {
 
 def handshakeWatchdog() {
     if (state.awaitingResponseHeaders == true && state.manualClose != true) {
+        traceConnection("Timed out waiting for Dahua event-stream HTTP response headers", "handshake_timeout")
         updateError("Timed out waiting for Dahua event-stream HTTP response headers")
         handleDisconnect("handshakeTimeout")
     }
@@ -253,12 +283,16 @@ def parse(String message) {
     if (message == null) {
         return
     }
-    sendEvent(name: "lastRawMessageSample", value: abbreviate(message, 120))
+    state.rawChunkCount = ((state.rawChunkCount ?: 0) as Integer) + 1
+    sendEvent(name: "rawChunkCount", value: state.rawChunkCount)
+    sendEvent(name: "lastRawMessageSample", value: abbreviate(redactSensitive(message), 120))
 
     state.streamBuffer = (state.streamBuffer ?: "") + message
+    sendEvent(name: "streamBufferBytes", value: (state.streamBuffer?.size() ?: 0))
     if ((state.streamBuffer?.size() ?: 0) > MAX_STREAM_BUFFER_BYTES) {
         updateError("Event stream buffer exceeded ${MAX_STREAM_BUFFER_BYTES} bytes; reconnecting")
         state.streamBuffer = ""
+        sendEvent(name: "streamBufferBytes", value: 0)
         handleDisconnect("bufferOverflow")
         return
     }
@@ -282,8 +316,9 @@ def parse(String message) {
 }
 
 def socketStatus(String status) {
-    debugLog "Socket status: ${status}"
-    sendEvent(name: "lastSocketStatus", value: status ?: "")
+    String sanitizedStatus = redactSensitive(status)
+    traceConnection("Socket status: ${sanitizedStatus}", "socket_status")
+    sendEvent(name: "lastSocketStatus", value: sanitizedStatus ?: "")
     if (status?.startsWith("receive error:")) {
         updateError(status)
         handleDisconnect("receiveError")
@@ -291,7 +326,7 @@ def socketStatus(String status) {
         updateError(status)
         handleDisconnect("sendError")
     } else if (status == "status: open") {
-        debugLog "Dahua event stream socket opened"
+        traceConnection("Dahua event stream socket opened", "socket_open")
         sendEvent(name: "connectionPhase", value: "socket_open")
         if (state.pendingInitialRequest == true) {
             state.pendingInitialRequest = false
@@ -305,7 +340,9 @@ def socketStatus(String status) {
 private void handleHttpHeaders(String rawHeaders) {
     List<String> lines = rawHeaders.split(/\r?\n/) as List<String>
     String statusLine = lines ? lines[0] : ""
+    sendEvent(name: "lastHeaderSample", value: abbreviate(redactSensitive(rawHeaders), 200))
     sendEvent(name: "lastHttpStatusLine", value: statusLine ?: "")
+    traceConnection("Received HTTP status line ${statusLine}", "http_headers")
     Map<String, String> headers = [:]
     lines.drop(1).each { String line ->
         if (line.contains(":")) {
@@ -342,7 +379,7 @@ private void handleHttpHeaders(String rawHeaders) {
         sendEvent(name: "connectionPhase", value: "stream_connected")
         sendEvent(name: "lastError", value: "")
         sendEvent(name: "reconnectCount", value: 0)
-        debugLog "Dahua event stream authenticated and active"
+        traceConnection("Dahua event stream authenticated and active", "stream_connected")
         processEventBuffer()
         return
     }
@@ -369,9 +406,12 @@ private void sendAuthenticatedRequest(Map challenge) {
     state.awaitingResponseHeaders = true
     state.authAttempted = true
     state.streamBuffer = ""
+    sendEvent(name: "streamBufferBytes", value: 0)
     sendEvent(name: "connectionPhase", value: "sending_authenticated_request")
-    debugLog "Responding to Dahua digest challenge for ${state.lastRequestPath}"
-    interfaces.rawSocket.sendMessage(buildHttpRequest(eventPath(), authHeader))
+    String request = buildHttpRequest(eventPath(), authHeader)
+    sendEvent(name: "lastRequestPreview", value: abbreviate(redactSensitive(request), 200))
+    traceConnection("Responding to Dahua digest challenge", "sending_authenticated_request")
+    interfaces.rawSocket.sendMessage(request)
     runIn(HANDSHAKE_TIMEOUT_SECONDS, "handshakeWatchdog")
 }
 
@@ -387,7 +427,7 @@ private void processEventBuffer() {
         }
 
         if (envelope.code == "Heartbeat") {
-            debugLog "Heartbeat received"
+            traceConnection("Heartbeat received", "heartbeat")
             continue
         }
 
@@ -403,6 +443,7 @@ private String nextEventChunk() {
     if (separator >= 0) {
         String chunk = buffer.substring(0, separator).trim()
         state.streamBuffer = buffer.substring(separator + 4)
+        sendEvent(name: "streamBufferBytes", value: (state.streamBuffer?.size() ?: 0))
         return chunk
     }
 
@@ -410,11 +451,13 @@ private String nextEventChunk() {
     if (separator >= 0) {
         String chunk = buffer.substring(0, separator).trim()
         state.streamBuffer = buffer.substring(separator + 2)
+        sendEvent(name: "streamBufferBytes", value: (state.streamBuffer?.size() ?: 0))
         return chunk
     }
 
     if (buffer.contains("Heartbeat")) {
         state.streamBuffer = buffer.replace("Heartbeat", "")
+        sendEvent(name: "streamBufferBytes", value: (state.streamBuffer?.size() ?: 0))
         return "Code=Heartbeat"
     }
 
@@ -431,6 +474,7 @@ private Map parseEventChunk(String payload) {
     }
 
     if (!data && payload) {
+        traceConnection("Unhandled event chunk shape observed", "event_parse")
         debugLog "Unhandled Dahua event chunk shape: ${payload}"
         return [:]
     }
@@ -448,6 +492,7 @@ private Map parseEventChunk(String payload) {
     ]
 
     if (!channel) {
+        traceConnection("Event ${code} did not include a clear channel", "event_parse")
         debugLog "Event code ${code} did not include a clear channel. Raw keys: ${data.keySet()}"
     }
 
@@ -479,6 +524,7 @@ private boolean isMotionRelated(String code) {
 }
 
 private void handleDisconnect(String reason) {
+    traceConnection("Handling disconnect because ${reason}", "disconnect")
     sendEvent(name: "lastDisconnectTime", value: nowIso())
     sendEvent(name: "lastReconnectReason", value: reason ?: "unknown")
     sendEvent(name: "connectionPhase", value: "disconnected_${reason ?: 'unknown'}")
@@ -515,7 +561,7 @@ private boolean tryAlternateEventPath() {
     state.lastRequestPath = eventPath()
     sendEvent(name: "lastRequestPath", value: state.lastRequestPath)
     sendEvent(name: "connectionPhase", value: "retrying_alternate_event_path")
-    debugLog "Retrying Dahua event stream with alternate request path ${state.lastRequestPath}"
+    traceConnection("Retrying alternate event path ${state.lastRequestPath}", "alternate_path")
     openEventStream()
     return true
 }
@@ -537,7 +583,7 @@ private void scheduleReconnect(String reason) {
     sendEvent(name: "connectionPhase", value: "scheduled_reconnect")
     updateConnectionStatus("reconnecting", "reconnecting")
 
-    debugLog "Scheduling reconnect attempt ${nextAttempt} in ${delay}s because ${reason}"
+    traceConnection("Scheduling reconnect attempt ${nextAttempt} in ${delay}s because ${reason}", "scheduled_reconnect")
     runIn(delay, "attemptReconnect")
 }
 
@@ -545,7 +591,7 @@ def attemptReconnect() {
     if (state.manualClose == true) {
         return
     }
-    debugLog "Attempting Dahua event stream reconnect"
+    traceConnection("Attempting Dahua event stream reconnect", "reconnecting")
     sendEvent(name: "connectionPhase", value: "reconnecting")
     connectSocket()
 }
@@ -660,8 +706,24 @@ private void updateConnectionStatus(String networkStatus, String eventStatus) {
 }
 
 private void updateError(String message) {
-    sendEvent(name: "lastError", value: message ?: "")
-    log.warn message
+    String sanitized = redactSensitive(message)
+    sendEvent(name: "lastError", value: sanitized ?: "")
+    log.warn sanitized
+}
+
+private void traceConnection(String message, String phase = null) {
+    String sanitized = redactSensitive(message)
+    if (phase) {
+        sendEvent(name: "connectionPhase", value: phase)
+    }
+    List<String> entries = (state.connectionTraceEntries ?: []) as List<String>
+    entries << "${nowIso()} ${sanitized}"
+    if (entries.size() > MAX_TRACE_ENTRIES) {
+        entries = entries.takeRight(MAX_TRACE_ENTRIES)
+    }
+    state.connectionTraceEntries = entries
+    sendEvent(name: "connectionTrace", value: entries.join("\n"))
+    debugLog sanitized
 }
 
 private Map parseJson(String json) {
@@ -692,6 +754,24 @@ private String nowIso() {
 
 private void debugLog(String message) {
     if (settings.logEnable || state.connection?.debugEnabled) {
-        log.debug message
+        log.debug redactSensitive(message)
     }
+}
+
+private String redactSensitive(String value) {
+    if (value == null) {
+        return ""
+    }
+
+    String sanitized = value
+    String password = settings.nvrPassword ?: ""
+    if (password) {
+        sanitized = sanitized.replace(password, "********")
+    }
+
+    sanitized = sanitized.replaceAll(/Authorization:\s*Digest[^\r\n]*/, "Authorization: Digest [REDACTED]")
+    sanitized = sanitized.replaceAll(/(["']?password["']?\s*[:=]\s*["'])[^"']*(["'])/, "\$1********\$2")
+    sanitized = sanitized.replaceAll(/(["']?nvrPassword["']?\s*[:=]\s*["'])[^"']*(["'])/, "\$1********\$2")
+
+    return sanitized
 }
