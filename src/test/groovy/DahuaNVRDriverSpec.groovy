@@ -25,6 +25,7 @@ class DahuaNVRDriverSpec extends Specification {
         harness.rawSocket.connections.size() == 1
         harness.device.currentValue('eventStreamStatus') == 'reconnecting'
         harness.device.currentValue('connectionPhase') == 'opening_socket'
+        harness.device.currentValue('lastRequestMode') == 'auto'
         harness.device.currentValue('lastProbeStatus') == 'digest_challenge_received'
         harness.device.currentValue('lastProbeHttpStatus') == '401'
         harness.device.currentValue('connectionTrace').contains('Prepared digest auth from HTTP probe challenge')
@@ -62,6 +63,49 @@ class DahuaNVRDriverSpec extends Specification {
         harness.device.currentValue('lastHttpStatusLine') == 'HTTP/1.1 200 OK'
         harness.logsAt('DEBUG').any { it.contains('Raw socket connect invoked using') }
         harness.logsAt('DEBUG').any { it.contains('Prepared digest auth from HTTP probe challenge') }
+    }
+
+    def "raw socket HTTP test captures a successful non-stream response and stops cleanly"() {
+        given:
+        def harness = new HubitatScriptHarness()
+        harness.httpGetResponses['http://192.168.1.10:80/cgi-bin/magicBox.cgi?action=getSystemInfo'] =
+            new StubHttpResponseException(
+                statusCode: 401,
+                response: [headers: ['WWW-Authenticate': [value: 'Digest realm="Login to Dahua", nonce="probe123", qop="auth"']]]
+            )
+        def driver = harness.loadScript('DahuaNVRDriver.groovy')
+        driver.applyConnectionSettings('{"host":"192.168.1.10","port":80,"username":"admin","password":"secret","serialNumber":"ABC123","model":"Dahua NVR","cameraCount":4,"eventCodes":["All"],"debugEnabled":true}')
+
+        when:
+        driver.runRawSocketHttpTest('/cgi-bin/magicBox.cgi?action=getSystemInfo')
+        driver.socketStatus('status: open')
+        driver.parse('HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\n')
+
+        then:
+        harness.rawSocket.sentMessages.size() == 1
+        harness.rawSocket.sentMessages[0].contains('GET /cgi-bin/magicBox.cgi?action=getSystemInfo HTTP/1.1')
+        harness.device.currentValue('lastRawSocketTestPath') == '/cgi-bin/magicBox.cgi?action=getSystemInfo'
+        harness.device.currentValue('lastRawSocketTestStatus') == 'success_200'
+        harness.device.currentValue('lastRawSocketHeaderSample').contains('HTTP/1.1 200 OK')
+        harness.device.currentValue('lastAttemptSummary').contains('Raw socket test succeeded')
+        harness.device.currentValue('eventStreamStatus') == 'stopped'
+    }
+
+    def "request mode changes event-stream path and headers"() {
+        given:
+        def harness = new HubitatScriptHarness()
+        def driver = harness.loadScript('DahuaNVRDriver.groovy')
+        driver.applyConnectionSettings('{"host":"192.168.1.10","port":80,"username":"admin","password":"secret","serialNumber":"ABC123","model":"Dahua NVR","cameraCount":4,"eventCodes":["All"],"debugEnabled":true,"requestMode":"http10NoHeartbeat"}')
+
+        when:
+        driver.openEventStream()
+        driver.forceInitialRequestIfPending()
+
+        then:
+        harness.device.currentValue('lastRequestMode') == 'http10NoHeartbeat'
+        harness.device.currentValue('lastRequestPath') == '/cgi-bin/eventManager.cgi?action=attach&codes=[All]'
+        harness.rawSocket.sentMessages[0].contains('GET /cgi-bin/eventManager.cgi?action=attach&codes=[All] HTTP/1.0')
+        harness.rawSocket.sentMessages[0].contains('Connection: close')
     }
 
     def "refresh does not force connected state and removes legacy password from connection state"() {

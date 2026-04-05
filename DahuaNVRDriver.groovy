@@ -12,6 +12,14 @@ import java.security.MessageDigest
     "/cgi-bin/eventManager.cgi?action=attach&codes=[All]&heartbeat=5",
     "/cgi-bin/eventManager.cgi?action=attach&codes=[All]"
 ]
+@Field static final Map<String, Map> STREAM_REQUEST_MODES = [
+    auto             : [connection: "keep-alive", httpVersion: "HTTP/1.1", includeHeartbeat: true],
+    keepAliveHeartbeat: [connection: "keep-alive", httpVersion: "HTTP/1.1", includeHeartbeat: true],
+    keepAliveNoHeartbeat: [connection: "keep-alive", httpVersion: "HTTP/1.1", includeHeartbeat: false],
+    closeHeartbeat   : [connection: "close", httpVersion: "HTTP/1.1", includeHeartbeat: true],
+    closeNoHeartbeat : [connection: "close", httpVersion: "HTTP/1.1", includeHeartbeat: false],
+    http10NoHeartbeat: [connection: "close", httpVersion: "HTTP/1.0", includeHeartbeat: false]
+]
 @Field static final List<String> DEFAULT_MOTION_EVENTS = [
     "VideoMotion",
     "SmartMotionHuman",
@@ -58,16 +66,25 @@ metadata {
         attribute "streamBufferBytes", "number"
         attribute "rawChunkCount", "number"
         attribute "connectionTrace", "string"
+        attribute "lastAttemptSummary", "string"
+        attribute "lastConnectMethod", "string"
+        attribute "lastRequestMode", "string"
+        attribute "lastProbeErrorClass", "string"
+        attribute "lastRawSocketTestPath", "string"
+        attribute "lastRawSocketTestStatus", "string"
+        attribute "lastRawSocketHeaderSample", "string"
 
         command "applyConnectionSettings", [[name: "json", type: "STRING"]]
         command "openEventStream"
         command "closeEventStream"
         command "refresh"
+        command "runRawSocketHttpTest", [[name: "path", type: "STRING"]]
     }
 
     preferences {
         input name: "logEnable", type: "bool", title: "Enable debug logging", defaultValue: true
         input name: "nvrPassword", type: "password", title: "NVR Password", required: false
+        input name: "streamRequestMode", type: "enum", title: "Stream request mode", options: STREAM_REQUEST_MODES.keySet() as List, defaultValue: "auto", required: false
     }
 }
 
@@ -81,6 +98,7 @@ def updated() {
 
 def refresh() {
     sanitizeConnectionState()
+    traceConnection("Refresh requested", "refresh")
     if (device.currentValue("eventStreamStatus") != "connected") {
         openEventStream()
     }
@@ -96,13 +114,15 @@ def applyConnectionSettings(String json) {
         serialNumber: config.serialNumber,
         model       : config.model,
         eventCodes  : (config.eventCodes ?: ["All"]) as List<String>,
-        debugEnabled: config.debugEnabled == true
+        debugEnabled: config.debugEnabled == true,
+        requestMode : normalizeRequestMode(config.requestMode ?: settings.streamRequestMode)
     ]
     sanitizeConnectionState()
 
     sendEvent(name: "serialNumber", value: config.serialNumber ?: "")
     sendEvent(name: "model", value: config.model ?: "Dahua NVR")
     sendEvent(name: "cameraCount", value: (config.cameraCount ?: 0) as Integer)
+    sendEvent(name: "lastRequestMode", value: state.connection.requestMode ?: "auto")
     sendEvent(name: "networkStatus", value: device.currentValue("networkStatus") ?: "disconnected")
     sendEvent(name: "eventStreamStatus", value: device.currentValue("eventStreamStatus") ?: "disconnected")
 }
@@ -126,15 +146,51 @@ def openEventStream() {
     state.awaitingResponseHeaders = true
     state.pendingInitialRequest = true
     state.precomputedAuthorization = null
+    state.operationMode = "stream"
+    state.rawSocketTestPath = null
     state.eventPathIndex = ((state.eventPathIndex ?: 0) as Integer)
     state.lastRequestPath = eventPath()
     state.rawChunkCount = 0
     sendEvent(name: "lastRequestPath", value: state.lastRequestPath)
     sendEvent(name: "lastConnectAttempt", value: nowIso())
+    sendEvent(name: "lastRequestMode", value: effectiveRequestMode())
     sendEvent(name: "rawChunkCount", value: 0)
     sendEvent(name: "streamBufferBytes", value: 0)
+    sendEvent(name: "lastAttemptSummary", value: "")
     traceConnection("Opening event stream using path ${state.lastRequestPath}", "open_event_stream")
     prepareEventRequest()
+    sendEvent(name: "connectionPhase", value: "opening_socket")
+    connectSocket()
+}
+
+def runRawSocketHttpTest(String path = "/cgi-bin/magicBox.cgi?action=getSystemInfo") {
+    Map config = state.connection ?: [:]
+    if (!config.host || !config.username) {
+        updateError("Missing connection settings")
+        return
+    }
+
+    unschedule("attemptReconnect")
+    unschedule("forceInitialRequestIfPending")
+    unschedule("handshakeWatchdog")
+    state.manualClose = false
+    state.streamBuffer = ""
+    state.awaitingResponseHeaders = true
+    state.pendingInitialRequest = false
+    state.precomputedAuthorization = null
+    state.operationMode = "raw_socket_test"
+    state.rawSocketTestPath = path ?: "/cgi-bin/magicBox.cgi?action=getSystemInfo"
+    state.rawChunkCount = 0
+    sendEvent(name: "lastRawSocketTestPath", value: state.rawSocketTestPath)
+    sendEvent(name: "lastRawSocketTestStatus", value: "starting")
+    sendEvent(name: "lastRequestPath", value: state.rawSocketTestPath)
+    sendEvent(name: "lastConnectAttempt", value: nowIso())
+    sendEvent(name: "lastRequestMode", value: effectiveRequestMode())
+    sendEvent(name: "rawChunkCount", value: 0)
+    sendEvent(name: "streamBufferBytes", value: 0)
+    sendEvent(name: "lastAttemptSummary", value: "Raw socket test pending for ${state.rawSocketTestPath}")
+    traceConnection("Starting raw socket HTTP test for ${state.rawSocketTestPath}", "raw_socket_test")
+    prepareTestRequest()
     sendEvent(name: "connectionPhase", value: "opening_socket")
     connectSocket()
 }
@@ -171,6 +227,9 @@ def initializeParentState() {
     if (device.currentValue("rawChunkCount") == null) {
         sendEvent(name: "rawChunkCount", value: 0)
     }
+    if (device.currentValue("lastRequestMode") == null) {
+        sendEvent(name: "lastRequestMode", value: normalizeRequestMode(settings.streamRequestMode))
+    }
 }
 
 private void prepareEventRequest() {
@@ -182,6 +241,7 @@ private void prepareEventRequest() {
     sendEvent(name: "connectionPhase", value: "probing_auth")
     sendEvent(name: "lastProbeStatus", value: "starting")
     sendEvent(name: "lastProbeHttpStatus", value: "")
+    sendEvent(name: "lastProbeErrorClass", value: "")
     String path = eventPath()
     traceConnection("Probing auth via HTTP for ${path}", "probing_auth")
 
@@ -198,6 +258,7 @@ private void prepareEventRequest() {
     } catch (Exception e) {
         Integer statusCode = extractStatusCode(e)
         sendEvent(name: "lastProbeHttpStatus", value: statusCode != null ? statusCode.toString() : "")
+        sendEvent(name: "lastProbeErrorClass", value: e.getClass().getName())
         if (statusCode == 401) {
             String headerValue = extractHeaderValue(e, "WWW-Authenticate")
             Map challenge = parseDigestChallengeHeader(headerValue)
@@ -228,6 +289,46 @@ private void prepareEventRequest() {
     }
 }
 
+private void prepareTestRequest() {
+    Map config = state.connection ?: [:]
+    String path = state.rawSocketTestPath ?: "/cgi-bin/magicBox.cgi?action=getSystemInfo"
+    sendEvent(name: "lastProbeStatus", value: "starting")
+    sendEvent(name: "lastProbeHttpStatus", value: "")
+    sendEvent(name: "lastProbeErrorClass", value: "")
+    traceConnection("Probing auth via HTTP for test path ${path}", "raw_socket_test")
+
+    try {
+        httpGet(uri: "http://${config.host}:${config.port ?: 80}", path: path, timeout: 10) { resp ->
+            sendEvent(name: "lastProbeHttpStatus", value: "${resp?.status ?: ''}")
+            if (resp?.status == 200) {
+                state.precomputedAuthorization = null
+                sendEvent(name: "lastProbeStatus", value: "http_200_no_challenge")
+                traceConnection("HTTP probe returned 200 for raw socket test", "raw_socket_test")
+            }
+        }
+        return
+    } catch (Exception e) {
+        Integer statusCode = extractStatusCode(e)
+        sendEvent(name: "lastProbeHttpStatus", value: statusCode != null ? statusCode.toString() : "")
+        sendEvent(name: "lastProbeErrorClass", value: e.getClass().getName())
+        if (statusCode == 401) {
+            String headerValue = extractHeaderValue(e, "WWW-Authenticate")
+            Map challenge = parseDigestChallengeHeader(headerValue)
+            if (challenge) {
+                String nc = "00000001"
+                String cnonce = randomHex(16)
+                String password = settings.nvrPassword ?: ""
+                state.precomputedAuthorization = buildDigestAuthorization("GET", path, config.username, password, challenge, nc, cnonce)
+                sendEvent(name: "lastProbeStatus", value: "digest_challenge_received")
+                traceConnection("Prepared digest auth for raw socket test", "raw_socket_test")
+                return
+            }
+        }
+        sendEvent(name: "lastProbeStatus", value: "probe_failed")
+        traceConnection("HTTP probe failed for raw socket test ${path}: ${e.message}", "raw_socket_test")
+    }
+}
+
 private void connectSocket() {
     Map config = state.connection ?: [:]
     try {
@@ -235,9 +336,11 @@ private void connectSocket() {
         traceConnection("Opening raw socket to ${config.host}:${config.port}", "opening_socket")
         try {
             interfaces.rawSocket.connect("${config.host}:${config.port}", byteInterface: false)
+            sendEvent(name: "lastConnectMethod", value: "hostPort")
             traceConnection("Raw socket connect invoked using host:port form", "opening_socket")
         } catch (MissingMethodException ignored) {
             interfaces.rawSocket.connect(config.host as String, config.port as Integer, byteInterface: false)
+            sendEvent(name: "lastConnectMethod", value: "host_port")
             traceConnection("Raw socket connect invoked using host,port form", "opening_socket")
         }
         // Some Hubitat environments do not reliably emit `status: open`; this fallback
@@ -259,6 +362,24 @@ private void sendInitialUnauthenticatedRequest() {
     String request = buildHttpRequest(eventPath(), authorizationHeader)
     sendEvent(name: "lastRequestPreview", value: abbreviate(redactSensitive(request), 200))
     traceConnection("Sending event-stream request${authorizationHeader ? ' with precomputed digest auth' : ''}", phase)
+    sendEvent(name: "lastAttemptSummary", value: "Stream request sent using mode ${effectiveRequestMode()} to ${eventPath()}")
+    interfaces.rawSocket.sendMessage(request)
+    runIn(HANDSHAKE_TIMEOUT_SECONDS, "handshakeWatchdog")
+}
+
+private void sendRawSocketTestRequest() {
+    state.awaitingResponseHeaders = true
+    state.streamBuffer = ""
+    sendEvent(name: "streamBufferBytes", value: 0)
+    String path = state.rawSocketTestPath ?: "/cgi-bin/magicBox.cgi?action=getSystemInfo"
+    String authorizationHeader = state.precomputedAuthorization as String
+    sendEvent(name: "connectionPhase", value: "sending_test_request")
+    String request = buildHttpRequest(path, authorizationHeader)
+    sendEvent(name: "lastRequestPreview", value: abbreviate(redactSensitive(request), 200))
+    sendEvent(name: "lastRawSocketTestPath", value: path)
+    sendEvent(name: "lastRawSocketTestStatus", value: "request_sent")
+    sendEvent(name: "lastAttemptSummary", value: "Raw socket test request sent using mode ${effectiveRequestMode()} to ${path}")
+    traceConnection("Sending raw socket test request${authorizationHeader ? ' with precomputed digest auth' : ''}", "sending_test_request")
     interfaces.rawSocket.sendMessage(request)
     runIn(HANDSHAKE_TIMEOUT_SECONDS, "handshakeWatchdog")
 }
@@ -328,7 +449,9 @@ def socketStatus(String status) {
     } else if (status == "status: open") {
         traceConnection("Dahua event stream socket opened", "socket_open")
         sendEvent(name: "connectionPhase", value: "socket_open")
-        if (state.pendingInitialRequest == true) {
+        if (state.operationMode == "raw_socket_test") {
+            sendRawSocketTestRequest()
+        } else if (state.pendingInitialRequest == true) {
             state.pendingInitialRequest = false
             sendInitialUnauthenticatedRequest()
         }
@@ -343,6 +466,11 @@ private void handleHttpHeaders(String rawHeaders) {
     sendEvent(name: "lastHeaderSample", value: abbreviate(redactSensitive(rawHeaders), 200))
     sendEvent(name: "lastHttpStatusLine", value: statusLine ?: "")
     traceConnection("Received HTTP status line ${statusLine}", "http_headers")
+    if (state.operationMode == "raw_socket_test") {
+        sendEvent(name: "lastRawSocketTestStatus", value: statusLine ?: "headers_received")
+        sendEvent(name: "lastRawSocketHeaderSample", value: abbreviate(redactSensitive(rawHeaders), 200))
+        sendEvent(name: "lastAttemptSummary", value: "Raw socket test received ${statusLine ?: 'headers'}")
+    }
     Map<String, String> headers = [:]
     lines.drop(1).each { String line ->
         if (line.contains(":")) {
@@ -375,10 +503,19 @@ private void handleHttpHeaders(String rawHeaders) {
         state.authAttempted = false
         state.reconnectAttempt = 0
         unschedule("handshakeWatchdog")
+        if (state.operationMode == "raw_socket_test") {
+            sendEvent(name: "lastRawSocketTestStatus", value: "success_200")
+            sendEvent(name: "lastAttemptSummary", value: "Raw socket test succeeded with ${statusLine}")
+            traceConnection("Raw socket HTTP test received a successful response", "raw_socket_test_success")
+            state.manualClose = true
+            closeEventStream()
+            return
+        }
         updateConnectionStatus("connected", "connected")
         sendEvent(name: "connectionPhase", value: "stream_connected")
         sendEvent(name: "lastError", value: "")
         sendEvent(name: "reconnectCount", value: 0)
+        sendEvent(name: "lastAttemptSummary", value: "Stream connected successfully using mode ${effectiveRequestMode()} on ${eventPath()}")
         traceConnection("Dahua event stream authenticated and active", "stream_connected")
         processEventBuffer()
         return
@@ -537,6 +674,13 @@ private void handleDisconnect(String reason) {
         return
     }
 
+    if (state.operationMode == "raw_socket_test") {
+        sendEvent(name: "lastRawSocketTestStatus", value: "failed_${reason}")
+        sendEvent(name: "lastAttemptSummary", value: "Raw socket test failed because ${reason}")
+        updateConnectionStatus("disconnected", "stopped")
+        return
+    }
+
     if (reason == "handshakeTimeout" && tryAlternateEventPath()) {
         return
     }
@@ -598,10 +742,11 @@ def attemptReconnect() {
 
 private String buildHttpRequest(String path, String authorizationHeader) {
     Map config = state.connection ?: [:]
+    Map mode = currentRequestModeSpec()
     List<String> lines = [
-        "GET ${path} HTTP/1.1",
+        "GET ${path} ${mode.httpVersion}",
         "Host: ${config.host}:${config.port}",
-        "Connection: keep-alive",
+        "Connection: ${mode.connection}",
         "Accept: */*",
         "User-Agent: Hubitat-Dahua-NVR/1.0"
     ]
@@ -612,12 +757,13 @@ private String buildHttpRequest(String path, String authorizationHeader) {
 }
 
 private String eventPath() {
-    Integer index = ((state.eventPathIndex ?: 0) as Integer)
-    if (index < EVENT_PATH_CANDIDATES.size()) {
-        return EVENT_PATH_CANDIDATES[index]
-    }
     String codes = (state.connection?.eventCodes ?: ["All"]).join(",")
-    return "/cgi-bin/eventManager.cgi?action=attach&codes=[${codes}]&heartbeat=5"
+    List<String> candidates = currentEventPathCandidates(codes)
+    Integer index = ((state.eventPathIndex ?: 0) as Integer)
+    if (index < candidates.size()) {
+        return candidates[index]
+    }
+    return candidates[0]
 }
 
 private Map parseDigestChallengeHeader(String headerValue) {
@@ -690,6 +836,29 @@ private String abbreviate(String value, Integer maxLen) {
         return value
     }
     return value.substring(0, maxLen) + "..."
+}
+
+private String normalizeRequestMode(Object raw) {
+    String mode = raw?.toString()
+    return STREAM_REQUEST_MODES.containsKey(mode) ? mode : "auto"
+}
+
+private String effectiveRequestMode() {
+    return normalizeRequestMode(state.connection?.requestMode ?: settings.streamRequestMode)
+}
+
+private Map currentRequestModeSpec() {
+    return STREAM_REQUEST_MODES[effectiveRequestMode()] ?: STREAM_REQUEST_MODES.auto
+}
+
+private List<String> currentEventPathCandidates(String codes) {
+    Map mode = currentRequestModeSpec()
+    List<String> candidates = []
+    if (mode.includeHeartbeat == true) {
+        candidates << "/cgi-bin/eventManager.cgi?action=attach&codes=[${codes}]&heartbeat=5"
+    }
+    candidates << "/cgi-bin/eventManager.cgi?action=attach&codes=[${codes}]"
+    return candidates.unique()
 }
 
 private void sanitizeConnectionState() {
