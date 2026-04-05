@@ -66,6 +66,9 @@ class HubitatScriptHarness {
 
         binding.subscribe = { Object... args -> subscriptions << (args as List) }
         binding.unsubscribe = { Object... ignored -> }
+        binding.updateSetting = { String name, Map valueMap ->
+            settings[name] = valueMap.value
+        }
         binding.unschedule = { Object... args -> unscheduled << (args as List) }
         binding.schedule = { String cron, String methodName ->
             scheduled << [type: 'schedule', cron: cron, method: methodName]

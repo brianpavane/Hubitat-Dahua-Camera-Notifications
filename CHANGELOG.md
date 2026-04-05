@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.3.0] - 2026-04-05
+
+### Added
+
+- Staged discovery flow so camera naming and enablement can be finalized before child devices are created
+- More robust Dahua camera discovery for `table.ChannelTitle[...]` payloads and remote device channel data
+- Regression tests covering staged discovery and channel-zero filtering
+
+### Changed
+
+- Parent driver now stores the NVR password in a password setting instead of plaintext `state.connection`
+- Parent event-stream startup now waits for socket-open status before sending the HTTP request
+- README import and upgrade examples now point back to the `main` branch raw URLs
+
 ## [0.2.3] - 2026-04-05
 
 ### Fixed

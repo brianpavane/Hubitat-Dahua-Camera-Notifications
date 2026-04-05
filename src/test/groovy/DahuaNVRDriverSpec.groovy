@@ -10,6 +10,7 @@ class DahuaNVRDriverSpec extends Specification {
 
         when:
         driver.openEventStream()
+        driver.socketStatus('status: open')
 
         then:
         harness.rawSocket.connections.size() == 1
@@ -33,6 +34,8 @@ class DahuaNVRDriverSpec extends Specification {
         harness.device.currentValue('lastEventReceived') != null
         harness.device.currentValue('rawEvent').contains('"code":"VideoMotion"')
         harness.logsAt('INFO').any { it.contains('Motion event received (ch 1): VideoMotion start') }
+        !harness.state.connection.containsKey('password')
+        harness.settings.nvrPassword == 'secret'
     }
 
     def "socket closure schedules reconnect with bounded backoff"() {

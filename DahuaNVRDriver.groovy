@@ -3,7 +3,7 @@ import groovy.json.JsonSlurper
 import groovy.transform.Field
 import java.security.MessageDigest
 
-@Field static final String DRIVER_VERSION = "0.2.3"
+@Field static final String DRIVER_VERSION = "0.3.0"
 @Field static final List<Integer> RECONNECT_SCHEDULE_SECONDS = [5, 15, 30, 60]
 @Field static final Integer MAX_STREAM_BUFFER_BYTES = 131072
 @Field static final List<String> DEFAULT_MOTION_EVENTS = [
@@ -48,6 +48,7 @@ metadata {
 
     preferences {
         input name: "logEnable", type: "bool", title: "Enable debug logging", defaultValue: true
+        input name: "nvrPassword", type: "password", title: "NVR Password", required: false
     }
 }
 
@@ -65,11 +66,11 @@ def refresh() {
 
 def applyConnectionSettings(String json) {
     Map config = parseJson(json)
+    updateSetting("nvrPassword", [value: config.password ?: "", type: "password"])
     state.connection = [
         host        : config.host,
         port        : (config.port ?: 80) as Integer,
         username    : config.username,
-        password    : config.password,
         serialNumber: config.serialNumber,
         model       : config.model,
         eventCodes  : (config.eventCodes ?: ["All"]) as List<String>,
@@ -98,6 +99,7 @@ def openEventStream() {
     state.authenticated = false
     state.authAttempted = false
     state.awaitingResponseHeaders = true
+    state.pendingInitialRequest = true
     state.lastRequestPath = eventPath()
     connectSocket()
 }
@@ -127,8 +129,11 @@ private void connectSocket() {
     Map config = state.connection ?: [:]
     try {
         updateConnectionStatus("reconnecting", "reconnecting")
-        interfaces.rawSocket.connect(config.host as String, config.port as Integer, byteInterface: false)
-        sendInitialUnauthenticatedRequest()
+        try {
+            interfaces.rawSocket.connect(config.host as String, config.port as Integer, byteInterface: false)
+        } catch (MissingMethodException ignored) {
+            interfaces.rawSocket.connect("${config.host}:${config.port}", byteInterface: false)
+        }
     } catch (Exception e) {
         updateError("Socket connect failed: ${e.message}")
         scheduleReconnect("socketConnectFailure")
@@ -182,6 +187,10 @@ def socketStatus(String status) {
         handleDisconnect("sendError")
     } else if (status == "status: open") {
         debugLog "Dahua event stream socket opened"
+        if (state.pendingInitialRequest == true) {
+            state.pendingInitialRequest = false
+            sendInitialUnauthenticatedRequest()
+        }
     } else if (status == "status: closed") {
         handleDisconnect("socketClosed")
     }
@@ -236,11 +245,12 @@ private void sendAuthenticatedRequest(Map challenge) {
     Map config = state.connection ?: [:]
     String nc = "00000001"
     String cnonce = randomHex(16)
+    String password = settings.nvrPassword ?: ""
     String authHeader = buildDigestAuthorization(
         "GET",
         eventPath(),
         config.username,
-        config.password,
+        password,
         challenge,
         nc,
         cnonce

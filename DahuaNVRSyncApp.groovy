@@ -3,7 +3,7 @@ import groovy.json.JsonSlurper
 import groovy.transform.Field
 import java.security.MessageDigest
 
-@Field static final String APP_VERSION = "0.2.3"
+@Field static final String APP_VERSION = "0.3.0"
 @Field static final List<String> DEFAULT_MOTION_EVENTS = [
     "VideoMotion",
     "SmartMotionHuman",
@@ -18,8 +18,8 @@ definition(
     author: "Brian Pavane",
     description: "Read-only Dahua NVR integration for Hubitat with per-camera child devices. Version ${APP_VERSION}.",
     category: "Safety & Security",
-    iconUrl: "https://raw.githubusercontent.com/brianpavane/Hubitat-Dahua-Camera-Notifications/v0.2.3/assets/dahua-nvr-sync-icon.svg",
-    iconX2Url: "https://raw.githubusercontent.com/brianpavane/Hubitat-Dahua-Camera-Notifications/v0.2.3/assets/dahua-nvr-sync-icon.svg",
+    iconUrl: "https://raw.githubusercontent.com/brianpavane/Hubitat-Dahua-Camera-Notifications/main/assets/dahua-nvr-sync-icon.svg",
+    iconX2Url: "https://raw.githubusercontent.com/brianpavane/Hubitat-Dahua-Camera-Notifications/main/assets/dahua-nvr-sync-icon.svg",
     importUrl: "https://raw.githubusercontent.com/brianpavane/Hubitat-Dahua-Camera-Notifications/main/DahuaNVRSyncApp.groovy",
     singleInstance: false,
     installOnOpen: false
@@ -48,14 +48,12 @@ def initialize() {
     ensureParentDevice()
     subscribeToParent()
     if (settings.autoSyncDaily) {
-        schedule("0 0 3 * * ?", "syncNvr")
+        schedule("0 0 3 * * ?", "discoverAndApplyConfiguredCameras")
     }
-    if (settings.nvrHost && settings.nvrUsername && settings.nvrPassword && !state.discoveredCameras) {
-        syncNvr()
-        return
+    if (settings.nvrHost && settings.nvrUsername && settings.nvrPassword && state.discoveredCameras) {
+        applyConfiguredCameras()
+        refreshParentConnection()
     }
-    reapplyConfiguredCameras()
-    refreshParentConnection()
 }
 
 def mainPage() {
@@ -85,7 +83,7 @@ def mainPage() {
 
 def cameraPage() {
     if (!state.discoveredCameras) {
-        syncNvr()
+        discoverCameras()
     }
 
     dynamicPage(name: "cameraPage", title: "Manage Cameras", install: false, uninstall: false) {
@@ -157,19 +155,34 @@ def statusPage() {
 
 def appButtonHandler(String buttonName) {
     if (buttonName == "runImmediateSync") {
-        syncNvr()
+        discoverCameras()
     }
 }
 
-def syncNvr() {
+def discoverAndApplyConfiguredCameras() {
+    discoverCameras()
+    applyConfiguredCameras()
+    refreshParentConnection()
+}
+
+def discoverCameras() {
     Map discovery = performDiscovery()
     state.lastSync = nowIso()
+    state.nvrSerialNumber = discovery.serialNumber ?: digestFallbackId()
+    state.nvrModel = discovery.model ?: "Dahua NVR"
     state.discoveredCameras = mergeCameraPreferences(discovery.cameras ?: [:])
     ensureParentDevice()
     updateParentMetadata(discovery)
-    syncChildDevices()
-    refreshParentConnection()
-    log.info "Dahua discovery complete: ${(state.discoveredCameras ?: [:]).size()} cameras"
+    log.info "Dahua discovery staged: ${(state.discoveredCameras ?: [:]).size()} cameras"
+}
+
+def applyConfiguredCameras() {
+    if (!state.discoveredCameras) {
+        debugLog "No discovered cameras are staged yet; skipping child-device apply"
+        return
+    }
+    reapplyConfiguredCameras()
+    log.info "Applied configured Dahua cameras: ${(state.discoveredCameras ?: [:]).findAll { k, v -> v.stale != true }.size()} channels"
 }
 
 private Map performDiscovery() {
@@ -195,6 +208,7 @@ private Map performDiscovery() {
 
     Map channelTitles = dahuaGetAsMap("/cgi-bin/configManager.cgi?action=getConfig&name=ChannelTitle", false)
     Map videoWidget = dahuaGetAsMap("/cgi-bin/configManager.cgi?action=getConfig&name=VideoWidget", false)
+    Map remoteDevices = dahuaGetAsMap("/cgi-bin/configManager.cgi?action=getConfig&name=RemoteDevice", false)
 
     Map<String, Map> cameras = [:]
     extractChannelNames(channelTitles).each { String channel, String name ->
@@ -216,6 +230,16 @@ private Map performDiscovery() {
     }
 
     if (!cameras) {
+        extractRemoteDeviceChannels(remoteDevices).each { String channel, Map remote ->
+            cameras[channel] = [
+                channel       : channel,
+                discoveredName: remote.name ?: "Camera ${channel}",
+                enabled       : true
+            ]
+        }
+    }
+
+    if (!cameras) {
         Map cameraState = dahuaGetAsMap("/cgi-bin/devVideoInput.cgi?action=getCollect", false)
         Set<String> channels = extractChannelIds(cameraState)
         if (!channels) {
@@ -231,6 +255,7 @@ private Map performDiscovery() {
         }
     }
 
+    cameras = normalizeDiscoveredCameras(cameras)
     result.cameras = cameras
     debugLog "Discovery result: ${JsonOutput.toJson(result)}"
     return result
@@ -312,8 +337,8 @@ private void updateParentMetadata(Map discovery) {
         username         : settings.nvrUsername,
         password         : settings.nvrPassword,
         debugEnabled     : settings.enableDebugLogging == true,
-        serialNumber     : discovery.serialNumber ?: digestFallbackId(),
-        model            : discovery.model ?: "Dahua NVR",
+        serialNumber     : discovery.serialNumber ?: state.nvrSerialNumber ?: digestFallbackId(),
+        model            : discovery.model ?: state.nvrModel ?: "Dahua NVR",
         cameraCount      : (state.discoveredCameras ?: [:]).findAll { k, v -> v.stale != true }.size(),
         eventCodes       : ["All"]
     ]))
@@ -416,12 +441,42 @@ private List<String> motionEventsForChannel(String channel) {
 private Map<String, String> extractChannelNames(Map source) {
     Map<String, String> result = [:]
     source?.each { String key, Object value ->
-        def matcher = (key =~ /(?:ChannelTitle|VideoWidget)\[(\d+)\]\.(?:Name|ChannelTitle\.EncodeBlend|ChannelName|Title)/)
+        def matcher = (key =~ /(?:^|.*\.)(?:ChannelTitle|VideoWidget)\[(\d+)\]\.(?:Name|ChannelTitle(?:\.Text)?|ChannelName|Title|Text|EncodeBlend)/)
         if (matcher.matches()) {
             String channel = matcher.group(1)
-            if (value != null && value.toString().trim()) {
-                result[channel] = value.toString().trim()
+            String text = value?.toString()?.trim()
+            if (text && !text.equalsIgnoreCase("true") && !text.equalsIgnoreCase("false")) {
+                result[channel] = text
             }
+        }
+    }
+    return result
+}
+
+private Map<String, Map> extractRemoteDeviceChannels(Map source) {
+    Map<String, Map> byIndex = [:]
+    source?.each { String key, Object value ->
+        def localNoMatcher = (key =~ /(?:^|.*\.)RemoteDevice\[(\d+)\]\.(?:LocalNo|Channel|ChannelID)/)
+        if (localNoMatcher.matches()) {
+            String remoteIndex = localNoMatcher.group(1)
+            byIndex[remoteIndex] = (byIndex[remoteIndex] ?: [:]) + [channel: normalizeChannel(value)]
+        }
+
+        def nameMatcher = (key =~ /(?:^|.*\.)RemoteDevice\[(\d+)\]\.(?:Name|DevName|UserName)/)
+        if (nameMatcher.matches()) {
+            String remoteIndex = nameMatcher.group(1)
+            String text = value?.toString()?.trim()
+            if (text) {
+                byIndex[remoteIndex] = (byIndex[remoteIndex] ?: [:]) + [name: text]
+            }
+        }
+    }
+
+    Map<String, Map> result = [:]
+    byIndex.values().each { Map remote ->
+        String channel = remote.channel
+        if (channel != null && channel != "") {
+            result[channel] = remote
         }
     }
     return result
@@ -436,6 +491,26 @@ private Set<String> extractChannelIds(Map source) {
         }
     }
     return ids
+}
+
+private Map<String, Map> normalizeDiscoveredCameras(Map<String, Map> cameras) {
+    if (!cameras) {
+        return cameras
+    }
+
+    Set<String> positiveChannels = cameras.keySet().findAll { String key ->
+        key?.isInteger() && key.toInteger() > 0
+    } as Set<String>
+
+    if (positiveChannels) {
+        Map<String, Map> filtered = cameras.findAll { String key, Map value ->
+            positiveChannels.contains(key)
+        } as Map<String, Map>
+        debugLog "Discarding channel 0 because positive camera channels were discovered: ${positiveChannels.sort()}"
+        return filtered
+    }
+
+    return cameras
 }
 
 private Map dahuaGetAsMap(String path, boolean logErrors = true) {
@@ -582,7 +657,7 @@ private String parentDni() {
 }
 
 private String cameraDni(String channel) {
-    String serial = getParentDevice()?.currentValue("serialNumber") ?: digestFallbackId()
+    String serial = state.nvrSerialNumber ?: getParentDevice()?.currentValue("serialNumber") ?: digestFallbackId()
     return "dahua-${serial}-ch-${channel}"
 }
 
