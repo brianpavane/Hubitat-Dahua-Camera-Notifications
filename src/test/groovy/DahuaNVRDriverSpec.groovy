@@ -10,12 +10,18 @@ class DahuaNVRDriverSpec extends Specification {
 
         when:
         driver.openEventStream()
-        driver.socketStatus('status: open')
 
         then:
         harness.rawSocket.connections.size() == 1
-        harness.rawSocket.sentMessages[0].contains('GET /cgi-bin/eventManager.cgi?action=attach&codes=[All]&heartbeat=5 HTTP/1.1')
         harness.device.currentValue('eventStreamStatus') == 'reconnecting'
+        harness.device.currentValue('connectionPhase') == 'opening_socket'
+
+        when:
+        driver.socketStatus('status: open')
+
+        then:
+        harness.rawSocket.sentMessages[0].contains('GET /cgi-bin/eventManager.cgi?action=attach&codes=[All]&heartbeat=5 HTTP/1.1')
+        harness.device.currentValue('connectionPhase') == 'sending_initial_request'
 
         when:
         driver.parse('HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Digest realm="Login to Dahua", nonce="abc123", qop="auth"\r\n\r\n')
@@ -36,6 +42,24 @@ class DahuaNVRDriverSpec extends Specification {
         harness.logsAt('INFO').any { it.contains('Motion event received (ch 1): VideoMotion start') }
         !harness.state.connection.containsKey('password')
         harness.settings.nvrPassword == 'secret'
+        harness.device.currentValue('lastHttpStatusLine') == 'HTTP/1.1 200 OK'
+    }
+
+    def "refresh does not force connected state and removes legacy password from connection state"() {
+        given:
+        def harness = new HubitatScriptHarness()
+        def driver = harness.loadScript('DahuaNVRDriver.groovy')
+        harness.state.connection = [host: '192.168.1.10', port: 80, username: 'admin', password: 'secret', eventCodes: ['All']]
+        harness.device.currentValues.networkStatus = 'connected'
+        harness.device.currentValues.eventStreamStatus = 'reconnecting'
+
+        when:
+        driver.refresh()
+
+        then:
+        !harness.state.connection.containsKey('password')
+        harness.device.currentValue('eventStreamStatus') == 'reconnecting'
+        harness.rawSocket.connections.size() == 1
     }
 
     def "socket closure schedules reconnect with bounded backoff"() {
@@ -51,6 +75,23 @@ class DahuaNVRDriverSpec extends Specification {
         harness.device.currentValue('eventStreamStatus') == 'reconnecting'
         harness.device.currentValue('reconnectCount') == 1
         harness.scheduled.any { it.method == 'attemptReconnect' && it.delay == 5 }
+    }
+
+    def "fallback initial request fires when socket open status is not observed"() {
+        given:
+        def harness = new HubitatScriptHarness()
+        def driver = harness.loadScript('DahuaNVRDriver.groovy')
+        driver.applyConnectionSettings('{"host":"192.168.1.10","port":80,"username":"admin","password":"secret","serialNumber":"ABC123","model":"Dahua NVR","cameraCount":4,"eventCodes":["All"],"debugEnabled":true}')
+
+        when:
+        driver.openEventStream()
+        driver.forceInitialRequestIfPending()
+
+        then:
+        harness.rawSocket.sentMessages.size() == 1
+        harness.rawSocket.sentMessages[0].contains('GET /cgi-bin/eventManager.cgi?action=attach&codes=[All]&heartbeat=5 HTTP/1.1')
+        harness.device.currentValue('connectionPhase') == 'sending_initial_request'
+        harness.scheduled.any { it.method == 'handshakeWatchdog' && it.delay == 15 }
     }
 
     def "oversized event buffer is cleared and reconnect is scheduled"() {

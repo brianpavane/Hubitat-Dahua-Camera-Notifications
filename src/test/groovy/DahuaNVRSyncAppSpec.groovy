@@ -38,6 +38,36 @@ class DahuaNVRSyncAppSpec extends Specification {
         harness.logsAt('DEBUG').any { it.contains('Not creating child device for disabled camera') }
     }
 
+    def "apply refreshes parent camera count from staged discovered cameras"() {
+        given:
+        def harness = new HubitatScriptHarness()
+        harness.settings.nvrHost = '192.168.1.10'
+        harness.settings.nvrPort = 80
+        harness.settings.nvrUsername = 'admin'
+        harness.settings.nvrPassword = 'secret'
+        harness.settings.motionInactiveSeconds = 30
+
+        def app = harness.loadScript('DahuaNVRSyncApp.groovy')
+        def parent = new DeviceWrapper(deviceNetworkId: 'dahua-nvr-12345', label: 'Dahua NVR')
+        parent.currentValues.cameraCount = 1
+        harness.childDevices['dahua-nvr-12345'] = parent
+        harness.state.nvrSerialNumber = 'SERIAL1'
+        harness.state.nvrModel = 'Dahua NVR'
+        harness.state.discoveredCameras = [
+            '1': [channel: '1', discoveredName: 'Cam 1', enabled: true, stale: false],
+            '2': [channel: '2', discoveredName: 'Cam 2', enabled: false, stale: false],
+            '3': [channel: '3', discoveredName: 'Cam 3', enabled: true, stale: false]
+        ]
+
+        when:
+        app.applyConfiguredCameras()
+
+        then:
+        parent.commandCalls.find { it.name == 'applyConnectionSettings' } != null
+        def payload = new JsonSlurper().parseText(parent.commandCalls.find { it.name == 'applyConnectionSettings' }.json as String) as Map
+        payload.cameraCount == 3
+    }
+
     def "parent raw events are routed to the matching child with motion settings applied"() {
         given:
         def harness = new HubitatScriptHarness()

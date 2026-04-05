@@ -3,9 +3,10 @@ import groovy.json.JsonSlurper
 import groovy.transform.Field
 import java.security.MessageDigest
 
-@Field static final String DRIVER_VERSION = "0.3.1"
+@Field static final String DRIVER_VERSION = "0.3.2"
 @Field static final List<Integer> RECONNECT_SCHEDULE_SECONDS = [5, 15, 30, 60]
 @Field static final Integer MAX_STREAM_BUFFER_BYTES = 131072
+@Field static final Integer HANDSHAKE_TIMEOUT_SECONDS = 15
 @Field static final List<String> DEFAULT_MOTION_EVENTS = [
     "VideoMotion",
     "SmartMotionHuman",
@@ -39,6 +40,12 @@ metadata {
         attribute "lastReconnectReason", "string"
         attribute "lastError", "string"
         attribute "rawEvent", "string"
+        attribute "lastSocketStatus", "string"
+        attribute "lastConnectAttempt", "string"
+        attribute "lastHttpStatusLine", "string"
+        attribute "connectionPhase", "string"
+        attribute "lastRequestPath", "string"
+        attribute "lastRawMessageSample", "string"
 
         command "applyConnectionSettings", [[name: "json", type: "STRING"]]
         command "openEventStream"
@@ -61,7 +68,10 @@ def updated() {
 }
 
 def refresh() {
-    updateConnectionStatus("connected", device.currentValue("eventStreamStatus") ?: "disconnected")
+    sanitizeConnectionState()
+    if (device.currentValue("eventStreamStatus") != "connected") {
+        openEventStream()
+    }
 }
 
 def applyConnectionSettings(String json) {
@@ -76,6 +86,7 @@ def applyConnectionSettings(String json) {
         eventCodes  : (config.eventCodes ?: ["All"]) as List<String>,
         debugEnabled: config.debugEnabled == true
     ]
+    sanitizeConnectionState()
 
     sendEvent(name: "serialNumber", value: config.serialNumber ?: "")
     sendEvent(name: "model", value: config.model ?: "Dahua NVR")
@@ -93,6 +104,8 @@ def openEventStream() {
     }
 
     unschedule("attemptReconnect")
+    unschedule("forceInitialRequestIfPending")
+    unschedule("handshakeWatchdog")
     state.manualClose = false
     state.streamBuffer = ""
     state.reconnectAttempt = 0
@@ -101,19 +114,26 @@ def openEventStream() {
     state.awaitingResponseHeaders = true
     state.pendingInitialRequest = true
     state.lastRequestPath = eventPath()
+    sendEvent(name: "lastRequestPath", value: state.lastRequestPath)
+    sendEvent(name: "lastConnectAttempt", value: nowIso())
+    sendEvent(name: "connectionPhase", value: "opening_socket")
     connectSocket()
 }
 
 def closeEventStream() {
     state.manualClose = true
+    unschedule("forceInitialRequestIfPending")
+    unschedule("handshakeWatchdog")
     try {
         interfaces.rawSocket.close()
     } catch (Exception ignored) {
     }
+    sendEvent(name: "connectionPhase", value: "stopped")
     updateConnectionStatus("disconnected", "stopped")
 }
 
 def initializeParentState() {
+    sanitizeConnectionState()
     if (device.currentValue("networkStatus") == null) {
         sendEvent(name: "networkStatus", value: "disconnected")
     }
@@ -129,11 +149,15 @@ private void connectSocket() {
     Map config = state.connection ?: [:]
     try {
         updateConnectionStatus("reconnecting", "reconnecting")
+        debugLog "Opening Dahua raw socket to ${config.host}:${config.port} for ${state.lastRequestPath}"
         try {
             interfaces.rawSocket.connect(config.host as String, config.port as Integer, byteInterface: false)
         } catch (MissingMethodException ignored) {
             interfaces.rawSocket.connect("${config.host}:${config.port}", byteInterface: false)
         }
+        // Some Hubitat environments do not reliably emit `status: open`; this fallback
+        // pushes the initial HTTP request if the socket stays pending for too long.
+        runIn(1, "forceInitialRequestIfPending")
     } catch (Exception e) {
         updateError("Socket connect failed: ${e.message}")
         scheduleReconnect("socketConnectFailure")
@@ -143,13 +167,32 @@ private void connectSocket() {
 private void sendInitialUnauthenticatedRequest() {
     state.awaitingResponseHeaders = true
     state.streamBuffer = ""
+    sendEvent(name: "connectionPhase", value: "sending_initial_request")
+    debugLog "Sending initial Dahua event-stream request to ${state.lastRequestPath}"
     interfaces.rawSocket.sendMessage(buildHttpRequest(eventPath(), null))
+    runIn(HANDSHAKE_TIMEOUT_SECONDS, "handshakeWatchdog")
+}
+
+def forceInitialRequestIfPending() {
+    if (state.pendingInitialRequest == true && state.manualClose != true) {
+        debugLog "Socket open status not observed promptly; sending initial request anyway"
+        state.pendingInitialRequest = false
+        sendInitialUnauthenticatedRequest()
+    }
+}
+
+def handshakeWatchdog() {
+    if (state.awaitingResponseHeaders == true && state.manualClose != true) {
+        updateError("Timed out waiting for Dahua event-stream HTTP response headers")
+        handleDisconnect("handshakeTimeout")
+    }
 }
 
 def parse(String message) {
     if (message == null) {
         return
     }
+    sendEvent(name: "lastRawMessageSample", value: abbreviate(message, 120))
 
     state.streamBuffer = (state.streamBuffer ?: "") + message
     if ((state.streamBuffer?.size() ?: 0) > MAX_STREAM_BUFFER_BYTES) {
@@ -179,6 +222,7 @@ def parse(String message) {
 
 def socketStatus(String status) {
     debugLog "Socket status: ${status}"
+    sendEvent(name: "lastSocketStatus", value: status ?: "")
     if (status?.startsWith("receive error:")) {
         updateError(status)
         handleDisconnect("receiveError")
@@ -187,6 +231,7 @@ def socketStatus(String status) {
         handleDisconnect("sendError")
     } else if (status == "status: open") {
         debugLog "Dahua event stream socket opened"
+        sendEvent(name: "connectionPhase", value: "socket_open")
         if (state.pendingInitialRequest == true) {
             state.pendingInitialRequest = false
             sendInitialUnauthenticatedRequest()
@@ -199,6 +244,7 @@ def socketStatus(String status) {
 private void handleHttpHeaders(String rawHeaders) {
     List<String> lines = rawHeaders.split(/\r?\n/) as List<String>
     String statusLine = lines ? lines[0] : ""
+    sendEvent(name: "lastHttpStatusLine", value: statusLine ?: "")
     Map<String, String> headers = [:]
     lines.drop(1).each { String line ->
         if (line.contains(":")) {
@@ -208,6 +254,7 @@ private void handleHttpHeaders(String rawHeaders) {
     }
 
     if (statusLine.contains("401")) {
+        sendEvent(name: "connectionPhase", value: "auth_challenge")
         if (state.authAttempted == true) {
             updateError("Digest authentication failed for Dahua event stream")
             updateConnectionStatus("authFailed", "stopped")
@@ -229,7 +276,9 @@ private void handleHttpHeaders(String rawHeaders) {
         state.authenticated = true
         state.authAttempted = false
         state.reconnectAttempt = 0
+        unschedule("handshakeWatchdog")
         updateConnectionStatus("connected", "connected")
+        sendEvent(name: "connectionPhase", value: "stream_connected")
         sendEvent(name: "lastError", value: "")
         sendEvent(name: "reconnectCount", value: 0)
         debugLog "Dahua event stream authenticated and active"
@@ -259,7 +308,10 @@ private void sendAuthenticatedRequest(Map challenge) {
     state.awaitingResponseHeaders = true
     state.authAttempted = true
     state.streamBuffer = ""
+    sendEvent(name: "connectionPhase", value: "sending_authenticated_request")
+    debugLog "Responding to Dahua digest challenge for ${state.lastRequestPath}"
     interfaces.rawSocket.sendMessage(buildHttpRequest(eventPath(), authHeader))
+    runIn(HANDSHAKE_TIMEOUT_SECONDS, "handshakeWatchdog")
 }
 
 private void processEventBuffer() {
@@ -368,6 +420,10 @@ private boolean isMotionRelated(String code) {
 private void handleDisconnect(String reason) {
     sendEvent(name: "lastDisconnectTime", value: nowIso())
     sendEvent(name: "lastReconnectReason", value: reason ?: "unknown")
+    sendEvent(name: "connectionPhase", value: "disconnected_${reason ?: 'unknown'}")
+    state.pendingInitialRequest = false
+    unschedule("forceInitialRequestIfPending")
+    unschedule("handshakeWatchdog")
 
     if (state.manualClose == true) {
         updateConnectionStatus("disconnected", "stopped")
@@ -391,6 +447,7 @@ private void scheduleReconnect(String reason) {
     sendEvent(name: "reconnectCount", value: nextAttempt)
     sendEvent(name: "lastReconnectAttempt", value: nowIso())
     sendEvent(name: "lastReconnectReason", value: reason ?: "unknown")
+    sendEvent(name: "connectionPhase", value: "scheduled_reconnect")
     updateConnectionStatus("reconnecting", "reconnecting")
 
     debugLog "Scheduling reconnect attempt ${nextAttempt} in ${delay}s because ${reason}"
@@ -402,6 +459,7 @@ def attemptReconnect() {
         return
     }
     debugLog "Attempting Dahua event stream reconnect"
+    sendEvent(name: "connectionPhase", value: "reconnecting")
     connectSocket()
 }
 
@@ -485,6 +543,24 @@ private String randomHex(Integer len) {
     String chars = "0123456789abcdef"
     Random random = new Random()
     return (0..<len).collect { chars.charAt(random.nextInt(chars.length())) }.join()
+}
+
+private String abbreviate(String value, Integer maxLen) {
+    if (value == null) {
+        return ""
+    }
+    if (value.length() <= maxLen) {
+        return value
+    }
+    return value.substring(0, maxLen) + "..."
+}
+
+private void sanitizeConnectionState() {
+    if (state.connection instanceof Map && state.connection.containsKey("password")) {
+        state.connection = (state.connection.findAll { String key, Object value ->
+            key != "password"
+        } as Map)
+    }
 }
 
 private void updateConnectionStatus(String networkStatus, String eventStatus) {

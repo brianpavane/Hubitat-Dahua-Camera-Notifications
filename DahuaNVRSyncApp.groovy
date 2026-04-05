@@ -3,7 +3,7 @@ import groovy.json.JsonSlurper
 import groovy.transform.Field
 import java.security.MessageDigest
 
-@Field static final String APP_VERSION = "0.3.1"
+@Field static final String APP_VERSION = "0.3.2"
 @Field static final List<String> DEFAULT_MOTION_EVENTS = [
     "VideoMotion",
     "SmartMotionHuman",
@@ -181,6 +181,10 @@ def applyConfiguredCameras() {
         debugLog "No discovered cameras are staged yet; skipping child-device apply"
         return
     }
+    updateParentMetadata([
+        serialNumber: state.nvrSerialNumber ?: digestFallbackId(),
+        model       : state.nvrModel ?: "Dahua NVR"
+    ])
     reapplyConfiguredCameras()
     log.info "Applied configured Dahua cameras: ${(state.discoveredCameras ?: [:]).findAll { k, v -> v.stale != true }.size()} channels"
 }

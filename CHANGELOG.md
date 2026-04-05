@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.3.2] - 2026-04-05
+
+### Added
+
+- Parent-device diagnostics for connection phase, last socket status, last HTTP status line, last request path, and recent raw stream samples
+- Fallback initial request path for event-stream startup when Hubitat does not promptly emit raw-socket open status
+
+### Fixed
+
+- Parent connection state now strips legacy plaintext password values during initialize and refresh
+- Parent refresh no longer leaves a misleading `Network Status = Connected` while the stream is reconnecting
+- Parent camera count is refreshed from staged discovered cameras during apply/update flows on upgraded installs
+
 ## [0.3.1] - 2026-04-05
 
 ### Fixed
