@@ -1,13 +1,13 @@
 # Hubitat Dahua Camera Notifications
 
-**Version:** 0.2.1  
+**Version:** 0.2.2  
 **Author:** Brian Pavane  
 **Namespace:** `bpavane`  
 **Category:** Safety & Security  
 
 Read-only Hubitat integration for Dahua NVRs that discovers recorder-connected cameras, creates one Hubitat child device per camera, and maps Dahua motion-related events into Hubitat automations.
 
-Version `0.2.1` is an early field-test release focused on:
+Version `0.2.2` is an early field-test release focused on:
 
 - Dahua NVR discovery
 - one child device per discovered camera channel
@@ -32,7 +32,7 @@ Expect some model-specific differences during early testing. Extra debug logging
 - [ROADMAP.md](ROADMAP.md): roadmap
 - [CHANGELOG.md](CHANGELOG.md): release history
 
-## Features in 0.2.1
+## Features in 0.2.2
 
 - Connect to a Dahua NVR over the local network
 - Discover attached camera channels
@@ -50,7 +50,7 @@ Expect some model-specific differences during early testing. Extra debug logging
 
 ## Current v1 Scope
 
-Version `0.2.1` is read-only. It does not:
+Version `0.2.2` is read-only. It does not:
 
 - change camera or NVR settings
 - enable or disable Dahua analytics
@@ -99,7 +99,7 @@ Not every Dahua NVR or camera will emit all of these through the recorder.
 4. Paste the following URL and click **Import**:
 
    ```text
-   https://raw.githubusercontent.com/brianpavane/Hubitat-Dahua-Camera-Notifications/main/DahuaNVRDriver.groovy
+   https://raw.githubusercontent.com/brianpavane/Hubitat-Dahua-Camera-Notifications/v0.2.2/DahuaNVRDriver.groovy
    ```
 
 5. Click **Save**.
@@ -112,7 +112,7 @@ Not every Dahua NVR or camera will emit all of these through the recorder.
 4. Paste the following URL and click **Import**:
 
    ```text
-   https://raw.githubusercontent.com/brianpavane/Hubitat-Dahua-Camera-Notifications/main/DahuaCameraDriver.groovy
+   https://raw.githubusercontent.com/brianpavane/Hubitat-Dahua-Camera-Notifications/v0.2.2/DahuaCameraDriver.groovy
    ```
 
 5. Click **Save**.
@@ -125,13 +125,65 @@ Not every Dahua NVR or camera will emit all of these through the recorder.
 4. Paste the following URL and click **Import**:
 
    ```text
-   https://raw.githubusercontent.com/brianpavane/Hubitat-Dahua-Camera-Notifications/main/DahuaNVRSyncApp.groovy
+   https://raw.githubusercontent.com/brianpavane/Hubitat-Dahua-Camera-Notifications/v0.2.2/DahuaNVRSyncApp.groovy
    ```
 
 5. Click **Save**.
 6. Navigate to **Apps**.
 7. Click **+ Add User App**.
 8. Select **Dahua NVR Sync**.
+
+### Upgrade Instructions
+
+When upgrading from an older release, update all three code files before opening the installed app instance.
+
+#### Upgrade the parent driver
+
+1. In Hubitat, open **Drivers Code**.
+2. Open the existing **Dahua NVR** driver.
+3. Click **Import**.
+4. Paste:
+
+   ```text
+   https://raw.githubusercontent.com/brianpavane/Hubitat-Dahua-Camera-Notifications/v0.2.2/DahuaNVRDriver.groovy
+   ```
+
+5. Click **Import**, then **Save**.
+
+#### Upgrade the child driver
+
+1. In Hubitat, open **Drivers Code**.
+2. Open the existing **Dahua Camera** driver.
+3. Click **Import**.
+4. Paste:
+
+   ```text
+   https://raw.githubusercontent.com/brianpavane/Hubitat-Dahua-Camera-Notifications/v0.2.2/DahuaCameraDriver.groovy
+   ```
+
+5. Click **Import**, then **Save**.
+
+#### Upgrade the app
+
+1. In Hubitat, open **Apps Code**.
+2. Open the existing **Dahua NVR Sync** app code.
+3. Click **Import**.
+4. Paste:
+
+   ```text
+   https://raw.githubusercontent.com/brianpavane/Hubitat-Dahua-Camera-Notifications/v0.2.2/DahuaNVRSyncApp.groovy
+   ```
+
+5. Click **Import**, then **Save**.
+
+#### Finish the upgrade
+
+1. Open the installed **Dahua NVR Sync** app under **Apps**.
+2. Click **Done** once to let Hubitat apply the updated app code.
+3. Open one parent device and one child device to confirm the updated metadata/description is visible.
+4. If Hubitat shows old compile errors during import, clear the editor contents and import the versioned URL again.
+
+Using the versioned `v0.2.2` raw URLs avoids accidental imports of an older cached or in-between `main` branch file.
 
 ### Option B — Manual paste
 
@@ -270,4 +322,4 @@ These are the most likely areas to need adaptation as real devices are tested.
 
 ## Release
 
-Current release: `0.2.1`
+Current release: `0.2.2`

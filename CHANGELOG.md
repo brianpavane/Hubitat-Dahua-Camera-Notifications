@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.2.2] - 2026-04-05
+
+### Added
+
+- Embedded version metadata in the app and both drivers via version constants in the source files
+- Explicit driver and app upgrade instructions in the README
+
+### Changed
+
+- Switched README import and upgrade examples to version-pinned raw GitHub URLs for the published release
+
 ## [0.2.1] - 2026-04-05
 
 ### Fixed

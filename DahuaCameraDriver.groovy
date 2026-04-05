@@ -1,10 +1,14 @@
 import groovy.json.JsonSlurper
+import groovy.transform.Field
+
+@Field static final String DRIVER_VERSION = "0.2.2"
 
 metadata {
     definition(
         name: "Dahua Camera",
         namespace: "bpavane",
         author: "Brian Pavane",
+        description: "Child driver for Dahua camera channel events. Version ${DRIVER_VERSION}.",
         importUrl: "https://raw.githubusercontent.com/brianpavane/Hubitat-Dahua-Camera-Notifications/main/DahuaCameraDriver.groovy"
     ) {
         capability "MotionSensor"

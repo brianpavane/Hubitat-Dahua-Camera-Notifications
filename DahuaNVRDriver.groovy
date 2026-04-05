@@ -3,6 +3,7 @@ import groovy.json.JsonSlurper
 import groovy.transform.Field
 import java.security.MessageDigest
 
+@Field static final String DRIVER_VERSION = "0.2.2"
 @Field static final List<Integer> RECONNECT_SCHEDULE_SECONDS = [5, 15, 30, 60]
 @Field static final Integer MAX_STREAM_BUFFER_BYTES = 131072
 @Field static final List<String> DEFAULT_MOTION_EVENTS = [
@@ -18,6 +19,7 @@ metadata {
         name: "Dahua NVR",
         namespace: "bpavane",
         author: "Brian Pavane",
+        description: "Parent driver for Dahua NVR event streaming. Version ${DRIVER_VERSION}.",
         importUrl: "https://raw.githubusercontent.com/brianpavane/Hubitat-Dahua-Camera-Notifications/main/DahuaNVRDriver.groovy"
     ) {
         capability "Refresh"
