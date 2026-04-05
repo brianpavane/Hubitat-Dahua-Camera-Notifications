@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Dahua NVR Sync">
+  <rect width="128" height="128" rx="24" fill="#13232f"/>
+  <rect x="20" y="32" width="88" height="52" rx="10" fill="#1f3c4b"/>
+  <rect x="28" y="40" width="72" height="16" rx="4" fill="#77b7c9"/>
+  <circle cx="38" cy="94" r="6" fill="#f6c453"/>
+  <circle cx="60" cy="94" r="6" fill="#7fd27f"/>
+  <path d="M92 96c10-15 10-31 0-46" fill="none" stroke="#f6c453" stroke-linecap="round" stroke-width="6"/>
+  <path d="M78 96c10-15 10-31 0-46" fill="none" stroke="#7fd27f" stroke-linecap="round" stroke-width="6"/>
+</svg>

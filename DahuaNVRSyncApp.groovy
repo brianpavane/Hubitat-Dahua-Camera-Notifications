@@ -3,7 +3,7 @@ import groovy.json.JsonSlurper
 import groovy.transform.Field
 import java.security.MessageDigest
 
-@Field static final String APP_VERSION = "0.2.2"
+@Field static final String APP_VERSION = "0.2.3"
 @Field static final List<String> DEFAULT_MOTION_EVENTS = [
     "VideoMotion",
     "SmartMotionHuman",
@@ -18,6 +18,8 @@ definition(
     author: "Brian Pavane",
     description: "Read-only Dahua NVR integration for Hubitat with per-camera child devices. Version ${APP_VERSION}.",
     category: "Safety & Security",
+    iconUrl: "https://raw.githubusercontent.com/brianpavane/Hubitat-Dahua-Camera-Notifications/v0.2.3/assets/dahua-nvr-sync-icon.svg",
+    iconX2Url: "https://raw.githubusercontent.com/brianpavane/Hubitat-Dahua-Camera-Notifications/v0.2.3/assets/dahua-nvr-sync-icon.svg",
     importUrl: "https://raw.githubusercontent.com/brianpavane/Hubitat-Dahua-Camera-Notifications/main/DahuaNVRSyncApp.groovy",
     singleInstance: false,
     installOnOpen: false

@@ -1,13 +1,13 @@
 # Hubitat Dahua Camera Notifications
 
-**Version:** 0.2.2  
+**Version:** 0.2.3  
 **Author:** Brian Pavane  
 **Namespace:** `bpavane`  
 **Category:** Safety & Security  
 
 Read-only Hubitat integration for Dahua NVRs that discovers recorder-connected cameras, creates one Hubitat child device per camera, and maps Dahua motion-related events into Hubitat automations.
 
-Version `0.2.2` is an early field-test release focused on:
+Version `0.2.3` is an early field-test release focused on:
 
 - Dahua NVR discovery
 - one child device per discovered camera channel
@@ -32,7 +32,7 @@ Expect some model-specific differences during early testing. Extra debug logging
 - [ROADMAP.md](ROADMAP.md): roadmap
 - [CHANGELOG.md](CHANGELOG.md): release history
 
-## Features in 0.2.2
+## Features in 0.2.3
 
 - Connect to a Dahua NVR over the local network
 - Discover attached camera channels
@@ -47,10 +47,11 @@ Expect some model-specific differences during early testing. Extra debug logging
 - Log motion-related events in normal logs
 - Include a local automated test harness for the Hubitat codebase
 - Add event-stream buffer overflow protection in the parent driver
+- Include explicit app icon metadata required by Hubitat app import on stricter firmware
 
 ## Current v1 Scope
 
-Version `0.2.2` is read-only. It does not:
+Version `0.2.3` is read-only. It does not:
 
 - change camera or NVR settings
 - enable or disable Dahua analytics
@@ -99,7 +100,7 @@ Not every Dahua NVR or camera will emit all of these through the recorder.
 4. Paste the following URL and click **Import**:
 
    ```text
-   https://raw.githubusercontent.com/brianpavane/Hubitat-Dahua-Camera-Notifications/v0.2.2/DahuaNVRDriver.groovy
+   https://raw.githubusercontent.com/brianpavane/Hubitat-Dahua-Camera-Notifications/v0.2.3/DahuaNVRDriver.groovy
    ```
 
 5. Click **Save**.
@@ -112,7 +113,7 @@ Not every Dahua NVR or camera will emit all of these through the recorder.
 4. Paste the following URL and click **Import**:
 
    ```text
-   https://raw.githubusercontent.com/brianpavane/Hubitat-Dahua-Camera-Notifications/v0.2.2/DahuaCameraDriver.groovy
+   https://raw.githubusercontent.com/brianpavane/Hubitat-Dahua-Camera-Notifications/v0.2.3/DahuaCameraDriver.groovy
    ```
 
 5. Click **Save**.
@@ -125,7 +126,7 @@ Not every Dahua NVR or camera will emit all of these through the recorder.
 4. Paste the following URL and click **Import**:
 
    ```text
-   https://raw.githubusercontent.com/brianpavane/Hubitat-Dahua-Camera-Notifications/v0.2.2/DahuaNVRSyncApp.groovy
+   https://raw.githubusercontent.com/brianpavane/Hubitat-Dahua-Camera-Notifications/v0.2.3/DahuaNVRSyncApp.groovy
    ```
 
 5. Click **Save**.
@@ -145,7 +146,7 @@ When upgrading from an older release, update all three code files before opening
 4. Paste:
 
    ```text
-   https://raw.githubusercontent.com/brianpavane/Hubitat-Dahua-Camera-Notifications/v0.2.2/DahuaNVRDriver.groovy
+   https://raw.githubusercontent.com/brianpavane/Hubitat-Dahua-Camera-Notifications/v0.2.3/DahuaNVRDriver.groovy
    ```
 
 5. Click **Import**, then **Save**.
@@ -158,7 +159,7 @@ When upgrading from an older release, update all three code files before opening
 4. Paste:
 
    ```text
-   https://raw.githubusercontent.com/brianpavane/Hubitat-Dahua-Camera-Notifications/v0.2.2/DahuaCameraDriver.groovy
+   https://raw.githubusercontent.com/brianpavane/Hubitat-Dahua-Camera-Notifications/v0.2.3/DahuaCameraDriver.groovy
    ```
 
 5. Click **Import**, then **Save**.
@@ -171,7 +172,7 @@ When upgrading from an older release, update all three code files before opening
 4. Paste:
 
    ```text
-   https://raw.githubusercontent.com/brianpavane/Hubitat-Dahua-Camera-Notifications/v0.2.2/DahuaNVRSyncApp.groovy
+   https://raw.githubusercontent.com/brianpavane/Hubitat-Dahua-Camera-Notifications/v0.2.3/DahuaNVRSyncApp.groovy
    ```
 
 5. Click **Import**, then **Save**.
@@ -183,7 +184,7 @@ When upgrading from an older release, update all three code files before opening
 3. Open one parent device and one child device to confirm the updated metadata/description is visible.
 4. If Hubitat shows old compile errors during import, clear the editor contents and import the versioned URL again.
 
-Using the versioned `v0.2.2` raw URLs avoids accidental imports of an older cached or in-between `main` branch file.
+Using the versioned `v0.2.3` raw URLs avoids accidental imports of an older cached or in-between `main` branch file.
 
 ### Option B — Manual paste
 
@@ -322,4 +323,4 @@ These are the most likely areas to need adaptation as real devices are tested.
 
 ## Release
 
-Current release: `0.2.2`
+Current release: `0.2.3`

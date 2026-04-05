@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.2.3] - 2026-04-05
+
+### Fixed
+
+- Added non-empty `iconUrl` and `iconX2Url` entries to the app definition for Hubitat firmware that rejects blank icon metadata
+
+### Added
+
+- Repository-hosted SVG icon asset for the app definition
+
 ## [0.2.2] - 2026-04-05
 
 ### Added
