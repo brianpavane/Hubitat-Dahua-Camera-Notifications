@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.2.1] - 2026-04-05
+
+### Fixed
+
+- Removed Hubitat-incompatible `DeviceWrapper` type annotations from the app source so the app imports and compiles correctly in Hubitat Apps Code
+
 ## [0.2.0] - 2026-04-05
 
 ### Added

@@ -137,7 +137,7 @@ def motionPage() {
 
 def statusPage() {
     dynamicPage(name: "statusPage", title: "Status", install: false, uninstall: false) {
-        DeviceWrapper parent = getParentDevice()
+        def parent = getParentDevice()
         section("Sync") {
             paragraph "Last sync: ${state.lastSync ?: "Never"}"
             paragraph "Discovered cameras: ${(state.discoveredCameras ?: [:]).size()}"
@@ -261,7 +261,7 @@ private void syncChildDevices() {
     Map cameras = state.discoveredCameras ?: [:]
     cameras.each { String channel, Map cam ->
         String dni = cameraDni(channel)
-        DeviceWrapper child = getChildDevice(dni)
+        def child = getChildDevice(dni)
         if (!child) {
             child = addChildDevice("bpavane", "Dahua Camera", dni, [
                 name : "Dahua Camera ${channel}",
@@ -281,10 +281,10 @@ private void syncChildDevices() {
         ]))
     }
 
-    List<DeviceWrapper> existingChildren = (getChildDevices() ?: []).findAll { DeviceWrapper child ->
+    List existingChildren = (getChildDevices() ?: []).findAll { child ->
         child.deviceNetworkId != parentDni()
     }
-    existingChildren.each { DeviceWrapper child ->
+    existingChildren.each { child ->
         String channel = child.getDataValue("cameraChannel")
         Map cam = cameras[channel]
         if (!cam) {
@@ -302,7 +302,7 @@ private void reapplyConfiguredCameras() {
 }
 
 private void updateParentMetadata(Map discovery) {
-    DeviceWrapper parent = ensureParentDevice()
+    def parent = ensureParentDevice()
     parent.applyConnectionSettings(JsonOutput.toJson([
         host             : settings.nvrHost,
         port             : (settings.nvrPort ?: 80) as Integer,
@@ -318,15 +318,15 @@ private void updateParentMetadata(Map discovery) {
 }
 
 private void refreshParentConnection() {
-    DeviceWrapper parent = ensureParentDevice()
+    def parent = ensureParentDevice()
     if (parent) {
         parent.openEventStream()
     }
 }
 
-private DeviceWrapper ensureParentDevice() {
+private def ensureParentDevice() {
     String dni = parentDni()
-    DeviceWrapper existing = getChildDevice(dni)
+    def existing = getChildDevice(dni)
     if (existing) {
         return existing
     }
@@ -338,7 +338,7 @@ private DeviceWrapper ensureParentDevice() {
 }
 
 private void subscribeToParent() {
-    DeviceWrapper parent = getParentDevice()
+    def parent = getParentDevice()
     if (parent) {
         subscribe(parent, "rawEvent", "handleParentRawEvent")
         subscribe(parent, "eventStreamStatus", "handleParentStatusEvent")
@@ -375,7 +375,7 @@ def handleParentRawEvent(evt) {
         return
     }
 
-    DeviceWrapper child = getChildDevice(cameraDni(channel))
+    def child = getChildDevice(cameraDni(channel))
     if (!child) {
         log.warn "No child device found for channel ${channel}; event ${envelope.code} will be ignored"
         return
@@ -570,7 +570,7 @@ private Map<String, String> supportedMotionEventOptions() {
     ]
 }
 
-private DeviceWrapper getParentDevice() {
+private def getParentDevice() {
     return getChildDevice(parentDni())
 }
 
