@@ -82,15 +82,26 @@ Not every Dahua NVR or camera will emit all of these through the recorder.
 - Valid NVR credentials
 - Cameras connected through the NVR
 
+### Direct Import URLs
+
+Copy and paste these raw GitHub URLs into Hubitat when importing code manually.
+
+- App: `https://raw.githubusercontent.com/brianpavane/Hubitat-Dahua-Camera-Notifications/main/DahuaNVRSyncApp.groovy`
+- Parent driver: `https://raw.githubusercontent.com/brianpavane/Hubitat-Dahua-Camera-Notifications/main/DahuaNVRDriver.groovy`
+- Child driver: `https://raw.githubusercontent.com/brianpavane/Hubitat-Dahua-Camera-Notifications/main/DahuaCameraDriver.groovy`
+
 ### Install the Drivers and App
 
 1. In Hubitat, go to `Drivers Code`.
-2. Create a new driver and paste in the contents of [DahuaNVRDriver.groovy](DahuaNVRDriver.groovy).
+2. Create a new driver and paste in the contents of [DahuaNVRDriver.groovy](DahuaNVRDriver.groovy), or paste this URL into Hubitat's import flow:
+   `https://raw.githubusercontent.com/brianpavane/Hubitat-Dahua-Camera-Notifications/main/DahuaNVRDriver.groovy`
 3. Save the driver.
-4. Create another new driver and paste in the contents of [DahuaCameraDriver.groovy](DahuaCameraDriver.groovy).
+4. Create another new driver and paste in the contents of [DahuaCameraDriver.groovy](DahuaCameraDriver.groovy), or paste this URL into Hubitat's import flow:
+   `https://raw.githubusercontent.com/brianpavane/Hubitat-Dahua-Camera-Notifications/main/DahuaCameraDriver.groovy`
 5. Save the driver.
 6. In Hubitat, go to `Apps Code`.
-7. Create a new app and paste in the contents of [DahuaNVRSyncApp.groovy](DahuaNVRSyncApp.groovy).
+7. Create a new app and paste in the contents of [DahuaNVRSyncApp.groovy](DahuaNVRSyncApp.groovy), or paste this URL into Hubitat's import flow:
+   `https://raw.githubusercontent.com/brianpavane/Hubitat-Dahua-Camera-Notifications/main/DahuaNVRSyncApp.groovy`
 8. Save the app.
 9. Go to `Apps`.
 10. Add the `Dahua NVR Sync` app.
