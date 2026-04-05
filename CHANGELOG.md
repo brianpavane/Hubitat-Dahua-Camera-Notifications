@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.0] - 2026-04-05
+
+### Added
+
+- Full local Gradle and Spock test harness for the Hubitat app and drivers
+- Automated tests covering child motion state handling, parent reconnect behavior, app event routing, and repository metadata
+- Minimal `.gitignore` for Gradle build outputs
+
+### Changed
+
+- Hardened the parent Dahua event stream parser with a maximum buffer size and reconnect on overflow
+
 ## [0.1.1] - 2026-04-05
 
 ### Changed

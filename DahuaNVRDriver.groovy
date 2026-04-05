@@ -4,6 +4,7 @@ import groovy.transform.Field
 import java.security.MessageDigest
 
 @Field static final List<Integer> RECONNECT_SCHEDULE_SECONDS = [5, 15, 30, 60]
+@Field static final Integer MAX_STREAM_BUFFER_BYTES = 131072
 @Field static final List<String> DEFAULT_MOTION_EVENTS = [
     "VideoMotion",
     "SmartMotionHuman",
@@ -144,6 +145,12 @@ def parse(String message) {
     }
 
     state.streamBuffer = (state.streamBuffer ?: "") + message
+    if ((state.streamBuffer?.size() ?: 0) > MAX_STREAM_BUFFER_BYTES) {
+        updateError("Event stream buffer exceeded ${MAX_STREAM_BUFFER_BYTES} bytes; reconnecting")
+        state.streamBuffer = ""
+        handleDisconnect("bufferOverflow")
+        return
+    }
 
     if (state.awaitingResponseHeaders) {
         int headerTerminator = state.streamBuffer.indexOf("\r\n\r\n")
