@@ -3,7 +3,7 @@ import groovy.json.JsonSlurper
 import groovy.transform.Field
 import java.security.MessageDigest
 
-@Field static final String APP_VERSION = "0.3.0"
+@Field static final String APP_VERSION = "0.3.1"
 @Field static final List<String> DEFAULT_MOTION_EVENTS = [
     "VideoMotion",
     "SmartMotionHuman",
@@ -210,8 +210,11 @@ private Map performDiscovery() {
     Map videoWidget = dahuaGetAsMap("/cgi-bin/configManager.cgi?action=getConfig&name=VideoWidget", false)
     Map remoteDevices = dahuaGetAsMap("/cgi-bin/configManager.cgi?action=getConfig&name=RemoteDevice", false)
 
+    Map<String, String> channelTitleNames = normalizeNameChannels(extractChannelNames(channelTitles))
+    Map<String, String> videoWidgetNames = normalizeNameChannels(extractChannelNames(videoWidget))
+
     Map<String, Map> cameras = [:]
-    extractChannelNames(channelTitles).each { String channel, String name ->
+    channelTitleNames.each { String channel, String name ->
         cameras[channel] = [
             channel       : channel,
             discoveredName: name ?: "Camera ${channel}",
@@ -220,7 +223,7 @@ private Map performDiscovery() {
     }
 
     if (!cameras) {
-        extractChannelNames(videoWidget).each { String channel, String name ->
+        videoWidgetNames.each { String channel, String name ->
             cameras[channel] = [
                 channel       : channel,
                 discoveredName: name ?: "Camera ${channel}",
@@ -290,6 +293,11 @@ private void syncChildDevices() {
     cameras.each { String channel, Map cam ->
         String dni = cameraDni(channel)
         def child = getChildDevice(dni)
+        if (cam.enabled == false && !child) {
+            debugLog "Not creating child device for disabled camera ${buildCameraLabel(channel, cam)}"
+            return
+        }
+
         if (!child) {
             child = addChildDevice("bpavane", "Dahua Camera", dni, [
                 name : "Dahua Camera ${channel}",
@@ -317,6 +325,8 @@ private void syncChildDevices() {
         Map cam = cameras[channel]
         if (!cam) {
             child.setManagedDisabled(true, "stale")
+        } else if (cam.enabled == false) {
+            child.setManagedDisabled(true, "disabled")
         }
     }
 }
@@ -451,6 +461,28 @@ private Map<String, String> extractChannelNames(Map source) {
         }
     }
     return result
+}
+
+private Map<String, String> normalizeNameChannels(Map<String, String> names) {
+    if (!names) {
+        return names
+    }
+
+    List<Integer> numeric = names.keySet()
+        .findAll { it?.isInteger() }
+        .collect { it.toInteger() }
+        .sort()
+
+    if (numeric && numeric.first() == 0 && numeric == (0..<numeric.size()).toList()) {
+        Map<String, String> shifted = [:]
+        names.each { String key, String value ->
+            shifted[(key.toInteger() + 1).toString()] = value
+        }
+        debugLog "Shifted zero-based Dahua channel names to one-based channels: ${shifted.keySet().sort()}"
+        return shifted
+    }
+
+    return names
 }
 
 private Map<String, Map> extractRemoteDeviceChannels(Map source) {

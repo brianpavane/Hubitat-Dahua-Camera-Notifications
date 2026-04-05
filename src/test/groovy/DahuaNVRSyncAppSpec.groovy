@@ -11,6 +11,7 @@ class DahuaNVRSyncAppSpec extends Specification {
         harness.settings.nvrUsername = 'admin'
         harness.settings.nvrPassword = 'secret'
         harness.settings.motionInactiveSeconds = 30
+        harness.settings.enableDebugLogging = true
 
         stubDiscoveryResponses(harness)
 
@@ -26,12 +27,15 @@ class DahuaNVRSyncAppSpec extends Specification {
 
         when:
         harness.settings.camName_1 = 'Front Door Custom'
+        harness.settings.camEnabled_2 = false
         app.applyConfiguredCameras()
 
         then:
-        harness.childDevices.keySet().containsAll(['dahua-nvr-12345', 'dahua-SERIAL1-ch-1', 'dahua-SERIAL1-ch-2'])
+        harness.childDevices.keySet().containsAll(['dahua-nvr-12345', 'dahua-SERIAL1-ch-1'])
+        !harness.childDevices.keySet().contains('dahua-SERIAL1-ch-2')
         harness.childDevices['dahua-SERIAL1-ch-1'].label == 'Front Door Custom'
         harness.childDevices.findAll { it.key.contains('-ch-1') }.size() == 1
+        harness.logsAt('DEBUG').any { it.contains('Not creating child device for disabled camera') }
     }
 
     def "parent raw events are routed to the matching child with motion settings applied"() {
@@ -120,6 +124,28 @@ class DahuaNVRSyncAppSpec extends Specification {
             '2': 'Driveway',
             '3': 'Garage'
         ]
+    }
+
+    def "zero-based channel names are shifted to one-based camera numbers"() {
+        given:
+        def harness = new HubitatScriptHarness()
+        harness.settings.enableDebugLogging = true
+        def app = harness.loadScript('DahuaNVRSyncApp.groovy')
+
+        when:
+        Map result = app.invokeMethod('normalizeNameChannels', [[
+            '0': 'Cam One',
+            '1': 'Cam Two',
+            '2': 'Cam Three'
+        ]] as Object[])
+
+        then:
+        result == [
+            '1': 'Cam One',
+            '2': 'Cam Two',
+            '3': 'Cam Three'
+        ]
+        harness.logsAt('DEBUG').any { it.contains('Shifted zero-based Dahua channel names') }
     }
 
     def "channel zero is discarded when positive camera channels are discovered"() {

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1] - 2026-04-05
+
+### Fixed
+
+- Disabled cameras staged in Manage Cameras no longer create child devices during apply
+- Zero-based Dahua camera-name payloads are remapped to one-based Hubitat-facing channel numbers so Camera 1 can inherit the correct label
+
 ## [0.3.0] - 2026-04-05
 
 ### Added

@@ -1,13 +1,13 @@
 # Hubitat Dahua Camera Notifications
 
-**Version:** 0.3.0  
+**Version:** 0.3.1  
 **Author:** Brian Pavane  
 **Namespace:** `bpavane`  
 **Category:** Safety & Security  
 
 Read-only Hubitat integration for Dahua NVRs that discovers recorder-connected cameras, creates one Hubitat child device per camera, and maps Dahua motion-related events into Hubitat automations.
 
-Version `0.3.0` is an early field-test release focused on:
+Version `0.3.1` is an early field-test release focused on:
 
 - Dahua NVR discovery
 - one child device per discovered camera channel
@@ -32,7 +32,7 @@ Expect some model-specific differences during early testing. Extra debug logging
 - [ROADMAP.md](ROADMAP.md): roadmap
 - [CHANGELOG.md](CHANGELOG.md): release history
 
-## Features in 0.3.0
+## Features in 0.3.1
 
 - Connect to a Dahua NVR over the local network
 - Discover attached camera channels
@@ -55,7 +55,7 @@ Expect some model-specific differences during early testing. Extra debug logging
 
 ## Current v1 Scope
 
-Version `0.3.0` is read-only. It does not:
+Version `0.3.1` is read-only. It does not:
 
 - change camera or NVR settings
 - enable or disable Dahua analytics
@@ -327,4 +327,4 @@ These are the most likely areas to need adaptation as real devices are tested.
 
 ## Release
 
-Current release: `0.3.0`
+Current release: `0.3.1`
