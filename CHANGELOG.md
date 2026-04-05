@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.1] - 2026-04-05
+
+### Changed
+
+- Added Hubitat `importUrl` metadata to the app and both drivers so imports carry cleaner metadata
+- Reformatted the README installation section to match the import-link style used by Hubitat Bulk File Manager
+- Added explicit copy/paste import blocks for the app, parent driver, and child driver
+
 ## [0.1.0] - 2026-04-05
 
 Initial public release.

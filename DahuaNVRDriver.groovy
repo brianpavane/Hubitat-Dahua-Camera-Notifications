@@ -13,7 +13,12 @@ import java.security.MessageDigest
 ]
 
 metadata {
-    definition(name: "Dahua NVR", namespace: "bpavane", author: "OpenAI Codex") {
+    definition(
+        name: "Dahua NVR",
+        namespace: "bpavane",
+        author: "Brian Pavane",
+        importUrl: "https://raw.githubusercontent.com/brianpavane/Hubitat-Dahua-Camera-Notifications/main/DahuaNVRDriver.groovy"
+    ) {
         capability "Refresh"
         capability "Sensor"
 

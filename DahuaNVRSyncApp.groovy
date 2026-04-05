@@ -14,9 +14,10 @@ import java.security.MessageDigest
 definition(
     name: "Dahua NVR Sync",
     namespace: "bpavane",
-    author: "OpenAI Codex",
+    author: "Brian Pavane",
     description: "Read-only Dahua NVR integration for Hubitat with per-camera child devices.",
     category: "Safety & Security",
+    importUrl: "https://raw.githubusercontent.com/brianpavane/Hubitat-Dahua-Camera-Notifications/main/DahuaNVRSyncApp.groovy",
     singleInstance: false,
     installOnOpen: false
 )

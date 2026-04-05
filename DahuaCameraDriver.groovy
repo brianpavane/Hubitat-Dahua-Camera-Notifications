@@ -1,7 +1,12 @@
 import groovy.json.JsonSlurper
 
 metadata {
-    definition(name: "Dahua Camera", namespace: "bpavane", author: "OpenAI Codex") {
+    definition(
+        name: "Dahua Camera",
+        namespace: "bpavane",
+        author: "Brian Pavane",
+        importUrl: "https://raw.githubusercontent.com/brianpavane/Hubitat-Dahua-Camera-Notifications/main/DahuaCameraDriver.groovy"
+    ) {
         capability "MotionSensor"
         capability "Refresh"
         capability "Sensor"
