@@ -66,6 +66,7 @@ class DahuaNVRSyncAppSpec extends Specification {
         parent.commandCalls.find { it.name == 'applyConnectionSettings' } != null
         def payload = new JsonSlurper().parseText(parent.commandCalls.find { it.name == 'applyConnectionSettings' }.json as String) as Map
         payload.cameraCount == 3
+        parent.currentValue('cameraCount') == 3
     }
 
     def "parent raw events are routed to the matching child with motion settings applied"() {

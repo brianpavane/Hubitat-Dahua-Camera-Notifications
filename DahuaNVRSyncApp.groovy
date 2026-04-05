@@ -3,7 +3,7 @@ import groovy.json.JsonSlurper
 import groovy.transform.Field
 import java.security.MessageDigest
 
-@Field static final String APP_VERSION = "0.3.3"
+@Field static final String APP_VERSION = "0.3.4"
 @Field static final List<String> DEFAULT_MOTION_EVENTS = [
     "VideoMotion",
     "SmartMotionHuman",
@@ -49,6 +49,12 @@ def initialize() {
     subscribeToParent()
     if (settings.autoSyncDaily) {
         schedule("0 0 3 * * ?", "discoverAndApplyConfiguredCameras")
+    }
+    if (state.discoveredCameras) {
+        updateParentMetadata([
+            serialNumber: state.nvrSerialNumber ?: digestFallbackId(),
+            model       : state.nvrModel ?: "Dahua NVR"
+        ])
     }
     if (settings.nvrHost && settings.nvrUsername && settings.nvrPassword && state.discoveredCameras) {
         applyConfiguredCameras()
@@ -345,6 +351,7 @@ private void reapplyConfiguredCameras() {
 
 private void updateParentMetadata(Map discovery) {
     def parent = ensureParentDevice()
+    Integer cameraCount = (state.discoveredCameras ?: [:]).size()
     parent.applyConnectionSettings(JsonOutput.toJson([
         host             : settings.nvrHost,
         port             : (settings.nvrPort ?: 80) as Integer,
@@ -353,9 +360,10 @@ private void updateParentMetadata(Map discovery) {
         debugEnabled     : settings.enableDebugLogging == true,
         serialNumber     : discovery.serialNumber ?: state.nvrSerialNumber ?: digestFallbackId(),
         model            : discovery.model ?: state.nvrModel ?: "Dahua NVR",
-        cameraCount      : (state.discoveredCameras ?: [:]).findAll { k, v -> v.stale != true }.size(),
+        cameraCount      : cameraCount,
         eventCodes       : ["All"]
     ]))
+    parent.sendEvent(name: "cameraCount", value: cameraCount)
     parent.sendEvent(name: "lastSync", value: state.lastSync)
 }
 

@@ -132,6 +132,10 @@ class HubitatScriptHarness {
         List<String> sentMessages = []
         boolean closed = false
 
+        void connect(String hostPort, Map options) {
+            connections << [hostPort: hostPort, options: options]
+        }
+
         void connect(Map options, String host, Integer port) {
             connections << [host: host, port: port, options: options]
         }

@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.3.4] - 2026-04-05
+
+### Added
+
+- Parent event-stream startup now probes Dahua digest authentication over HTTP before opening the raw socket
+- Parent event-stream startup now retries an alternate Dahua attach path if the initial request path times out waiting for headers
+
+### Changed
+
+- Parent camera count now reflects the app's full discovered camera inventory during app initialization and apply flows
+- Parent event-stream handshake timeout increased to better tolerate slower Dahua responses during attach
+
+### Fixed
+
+- Upgraded installs now republish parent camera count on app initialization so stale values like `1` are corrected after re-import and app `Done`
+- Event-stream startup can preauthenticate the raw-socket request instead of waiting on a 401 challenge over the long-lived stream
+- Added connection-phase diagnostics for the preauth probe path so stalled Dahua attaches are easier to troubleshoot
+
 ## [0.3.3] - 2026-04-05
 
 ### Added
