@@ -106,7 +106,7 @@ def refresh() {
 
 def applyConnectionSettings(String json) {
     Map config = parseJson(json)
-    updateSetting("nvrPassword", [value: config.password ?: "", type: "password"])
+    device.updateSetting("nvrPassword", [value: config.password ?: "", type: "password"])
     state.connection = [
         host        : config.host,
         port        : (config.port ?: 80) as Integer,

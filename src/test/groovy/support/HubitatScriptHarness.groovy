@@ -24,6 +24,10 @@ class HubitatScriptHarness {
         binding.settings = settings
         binding.params = params
         binding.atomicState = atomicState
+        // Alias device.settings to the same Map as the binding settings so that
+        // device.updateSetting() writes are visible to the driver via settings.* —
+        // matching real Hubitat where both references are the same underlying object.
+        device.settings = settings
         binding.device = device
         binding.location = [
             timeZone: TimeZone.getTimeZone('America/New_York'),
