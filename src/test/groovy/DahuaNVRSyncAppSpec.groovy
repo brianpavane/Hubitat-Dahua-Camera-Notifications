@@ -305,7 +305,7 @@ class DahuaNVRSyncAppSpec extends Specification {
         harness.logsAt('INFO').any { it.contains('connection test passed') }
     }
 
-    def "testConnection stores failure message when NVR is unreachable"() {
+    def "testConnection shows pool-saturation guidance when HTTP pool is exhausted"() {
         given:
         def harness = new HubitatScriptHarness()
         harness.settings.nvrHost = '192.168.1.10'
@@ -320,9 +320,30 @@ class DahuaNVRSyncAppSpec extends Specification {
         app.appButtonHandler('testConnection')
 
         then:
-        harness.state.connectionTestResult.contains('Unreachable')
-        harness.state.connectionTestResult.contains('Timeout')
+        harness.state.connectionTestResult.contains('pool')
+        harness.state.connectionTestResult.contains('Wait 60 seconds')
+        harness.state.connectionTestResult.contains('192.168.1.10:80')
         harness.state.connectionTestTime != null
+        harness.logsAt('WARN').any { it.contains('could not reach') }
+    }
+
+    def "testConnection shows timeout guidance when NVR does not respond"() {
+        given:
+        def harness = new HubitatScriptHarness()
+        harness.settings.nvrHost = '192.168.1.10'
+        harness.settings.nvrPort = 80
+        harness.settings.nvrUsername = 'admin'
+        harness.settings.nvrPassword = 'secret'
+        harness.httpGetResponses['http://192.168.1.10:80/cgi-bin/magicBox.cgi?action=getSystemInfo'] =
+            new RuntimeException('Read timed out')
+        def app = harness.loadScript('DahuaNVRSyncApp.groovy')
+
+        when:
+        app.appButtonHandler('testConnection')
+
+        then:
+        harness.state.connectionTestResult.contains('Timed out')
+        harness.state.connectionTestResult.contains('192.168.1.10:80')
         harness.logsAt('WARN').any { it.contains('could not reach') }
     }
 

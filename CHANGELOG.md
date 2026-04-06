@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.4.3] - 2026-04-05
+
+### Fixed
+
+- **Test Connection** now surfaces actionable error messages instead of raw Java exception text.
+  Pool-exhaustion errors (`Timeout waiting for connection from pool`) prompt the user to wait 60 s;
+  TCP timeout, connection-refused, and network-unreachable conditions each get a distinct hint with
+  the NVR address included.
+- Driver and camera-driver version constants bumped from `0.4.1` to `0.4.3` to stay in sync with
+  the app version.
+
+### Added
+
+- Two new regression tests: pool-saturation guidance and timeout guidance for the Test Connection
+  error-classification path.
+
 ## [0.4.2] - 2026-04-05
 
 ### Changed

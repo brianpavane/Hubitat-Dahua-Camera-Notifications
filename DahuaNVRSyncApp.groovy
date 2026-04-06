@@ -3,7 +3,7 @@ import groovy.json.JsonSlurper
 import groovy.transform.Field
 import java.security.MessageDigest
 
-@Field static final String APP_VERSION = "0.4.2"
+@Field static final String APP_VERSION = "0.4.3"
 @Field static final List<String> DEFAULT_MOTION_EVENTS = [
     "VideoMotion",
     "SmartMotionHuman",
@@ -186,10 +186,29 @@ private void testConnection() {
         state.connectionTestResult = "Authentication failed (HTTP ${e.statusCode}) — check username and password"
         log.warn "Dahua connection test: authentication failed with HTTP ${e.statusCode} at ${settings.nvrHost}"
     } catch (Exception e) {
-        state.connectionTestResult = "Unreachable — ${e.message}"
+        state.connectionTestResult = interpretConnectivityError(e.message)
         log.warn "Dahua connection test: could not reach ${settings.nvrHost}: ${e.message}"
     }
     state.connectionTestTime = nowIso()
+}
+
+private String interpretConnectivityError(String rawMessage) {
+    String m = rawMessage?.toLowerCase() ?: ""
+    String addr = "${settings.nvrHost}:${settings.nvrPort ?: 80}"
+    if (m.contains("pool")) {
+        return "Cannot connect to ${addr} — the Hubitat HTTP pool is saturated from earlier failed " +
+            "attempts. Wait 60 seconds and try again. If it persists, verify the NVR IP and port."
+    }
+    if (m.contains("timeout") || m.contains("timed out")) {
+        return "Timed out connecting to ${addr} — verify the NVR IP address and HTTP port"
+    }
+    if (m.contains("refused")) {
+        return "Connection refused at ${addr} — the HTTP port may be incorrect (try 80 or 8080)"
+    }
+    if (m.contains("no route") || m.contains("unreachable") || m.contains("network")) {
+        return "Network unreachable — confirm the Hubitat hub and NVR are on the same network (${addr})"
+    }
+    return "Unreachable — ${rawMessage}"
 }
 
 def discoverAndApplyConfiguredCameras() {
