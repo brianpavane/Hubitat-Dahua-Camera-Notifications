@@ -3,7 +3,7 @@ import groovy.json.JsonSlurper
 import groovy.transform.Field
 import java.security.MessageDigest
 
-@Field static final String APP_VERSION = "0.4.1"
+@Field static final String APP_VERSION = "0.4.2"
 @Field static final List<String> DEFAULT_MOTION_EVENTS = [
     "VideoMotion",
     "SmartMotionHuman",
@@ -70,6 +70,11 @@ def mainPage() {
             input "nvrUsername", "text", title: "Username", required: true
             input "nvrPassword", "password", title: "Password", required: true
             input "cameraNamePrefix", "text", title: "Global camera name prefix", required: false
+            input "testConnection", "button", title: "Test Connection"
+            if (state.connectionTestResult) {
+                paragraph "Last test: ${state.connectionTestResult}" +
+                    (state.connectionTestTime ? " (${state.connectionTestTime})" : "")
+            }
         }
 
         section("Options") {
@@ -82,16 +87,11 @@ def mainPage() {
             href "cameraPage", title: "Manage Cameras", description: "Discover, enable, and rename cameras"
             href "motionPage", title: "Motion Mapping", description: "Choose which Dahua events drive Hubitat motion"
             href "statusPage", title: "Status", description: "Review sync, stream, and reconnect status"
-            paragraph "Use the Hubitat app button after saving to run discovery and create or update child devices."
         }
     }
 }
 
 def cameraPage() {
-    if (!state.discoveredCameras) {
-        discoverCameras()
-    }
-
     dynamicPage(name: "cameraPage", title: "Manage Cameras", install: false, uninstall: false) {
         section("Discovery") {
             paragraph "Discovered cameras: ${(state.discoveredCameras ?: [:]).size()}"
@@ -110,8 +110,8 @@ def cameraPage() {
                 }
             }
         } else {
-            section("Discovery") {
-                paragraph "No cameras discovered yet. Save the app and tap Discover / Re-sync Cameras."
+            section {
+                paragraph "No cameras discovered yet. Use Test Connection on the main page to confirm credentials, then tap Discover / Re-sync Cameras above."
             }
         }
     }
@@ -160,9 +160,36 @@ def statusPage() {
 }
 
 def appButtonHandler(String buttonName) {
-    if (buttonName == "runImmediateSync") {
-        discoverCameras()
+    switch (buttonName) {
+        case "runImmediateSync":
+            discoverCameras()
+            break
+        case "testConnection":
+            testConnection()
+            break
     }
+}
+
+private void testConnection() {
+    if (!settings.nvrHost || !settings.nvrUsername || !settings.nvrPassword) {
+        state.connectionTestResult = "Enter host, username, and password before testing"
+        state.connectionTestTime = nowIso()
+        return
+    }
+    try {
+        Map info = dahuaDigestGet("/cgi-bin/magicBox.cgi?action=getSystemInfo")
+        String model = info.deviceType ?: info.updateSerial ?: info.processor ?: "Dahua NVR"
+        String serial = info.serialNumber ?: info.sn ?: "(unknown)"
+        state.connectionTestResult = "OK — ${model}, S/N: ${serial}"
+        log.info "Dahua connection test passed: ${model} at ${settings.nvrHost}"
+    } catch (groovyx.net.http.HttpResponseException e) {
+        state.connectionTestResult = "Authentication failed (HTTP ${e.statusCode}) — check username and password"
+        log.warn "Dahua connection test: authentication failed with HTTP ${e.statusCode} at ${settings.nvrHost}"
+    } catch (Exception e) {
+        state.connectionTestResult = "Unreachable — ${e.message}"
+        log.warn "Dahua connection test: could not reach ${settings.nvrHost}: ${e.message}"
+    }
+    state.connectionTestTime = nowIso()
 }
 
 def discoverAndApplyConfiguredCameras() {

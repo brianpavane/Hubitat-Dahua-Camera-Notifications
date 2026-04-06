@@ -283,6 +283,82 @@ class DahuaNVRSyncAppSpec extends Specification {
         harness.logsAt('DEBUG').any { it.contains('Discarding channel 0') }
     }
 
+    def "testConnection stores OK result when NVR responds with model and serial"() {
+        given:
+        def harness = new HubitatScriptHarness()
+        harness.settings.nvrHost = '192.168.1.10'
+        harness.settings.nvrPort = 80
+        harness.settings.nvrUsername = 'admin'
+        harness.settings.nvrPassword = 'secret'
+        harness.httpGetResponses['http://192.168.1.10:80/cgi-bin/magicBox.cgi?action=getSystemInfo'] =
+            HubitatScriptHarness.textResponse(200, 'serialNumber=SERIAL1\ndeviceType=DHI-NVR4416-I\n')
+        def app = harness.loadScript('DahuaNVRSyncApp.groovy')
+
+        when:
+        app.appButtonHandler('testConnection')
+
+        then:
+        harness.state.connectionTestResult.startsWith('OK')
+        harness.state.connectionTestResult.contains('DHI-NVR4416-I')
+        harness.state.connectionTestResult.contains('SERIAL1')
+        harness.state.connectionTestTime != null
+        harness.logsAt('INFO').any { it.contains('connection test passed') }
+    }
+
+    def "testConnection stores failure message when NVR is unreachable"() {
+        given:
+        def harness = new HubitatScriptHarness()
+        harness.settings.nvrHost = '192.168.1.10'
+        harness.settings.nvrPort = 80
+        harness.settings.nvrUsername = 'admin'
+        harness.settings.nvrPassword = 'secret'
+        harness.httpGetResponses['http://192.168.1.10:80/cgi-bin/magicBox.cgi?action=getSystemInfo'] =
+            new RuntimeException('Timeout waiting for connection from pool')
+        def app = harness.loadScript('DahuaNVRSyncApp.groovy')
+
+        when:
+        app.appButtonHandler('testConnection')
+
+        then:
+        harness.state.connectionTestResult.contains('Unreachable')
+        harness.state.connectionTestResult.contains('Timeout')
+        harness.state.connectionTestTime != null
+        harness.logsAt('WARN').any { it.contains('could not reach') }
+    }
+
+    def "testConnection stores incomplete-config message when credentials are missing"() {
+        given:
+        def harness = new HubitatScriptHarness()
+        harness.settings.nvrHost = '192.168.1.10'
+        // nvrUsername and nvrPassword intentionally omitted
+        def app = harness.loadScript('DahuaNVRSyncApp.groovy')
+
+        when:
+        app.appButtonHandler('testConnection')
+
+        then:
+        harness.state.connectionTestResult.contains('password')
+        harness.httpGetCalls.isEmpty()
+    }
+
+    def "cameraPage does not auto-discover cameras on first visit"() {
+        given:
+        def harness = new HubitatScriptHarness()
+        harness.settings.nvrHost = '192.168.1.10'
+        harness.settings.nvrPort = 80
+        harness.settings.nvrUsername = 'admin'
+        harness.settings.nvrPassword = 'secret'
+        // No httpGetResponses stubs — any httpGet call would throw
+        def app = harness.loadScript('DahuaNVRSyncApp.groovy')
+
+        when:
+        app.cameraPage()
+
+        then:
+        harness.httpGetCalls.isEmpty()
+        harness.state.discoveredCameras == null
+    }
+
     private static void stubDiscoveryResponses(HubitatScriptHarness harness) {
         harness.httpGetResponses['http://192.168.1.10:80/cgi-bin/magicBox.cgi?action=getSystemInfo'] =
             HubitatScriptHarness.textResponse(200, 'serialNumber=SERIAL1\ndeviceType=NVR\n')

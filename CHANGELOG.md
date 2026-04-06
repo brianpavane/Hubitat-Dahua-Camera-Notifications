@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.4.2] - 2026-04-05
+
+### Changed
+
+- App configuration flow is now credential-first: entering the NVR IP and credentials and pressing
+  Done no longer triggers camera discovery automatically.
+- `Manage Cameras` page no longer auto-discovers cameras on first visit. Discovery only runs when
+  the user explicitly taps `Discover / Re-sync Cameras`.
+- Removed the stale guidance paragraph from the Actions section of the main page.
+
+### Added
+
+- **Test Connection** button on the main page. Sends one authenticated probe to the NVR and
+  displays the result (model, serial number, or a specific failure reason) inline on the page so
+  credentials can be validated before discovery is run.
+- Four new regression tests covering connection-test success, network failure, missing-credential
+  guard, and the no-auto-discover guarantee on the camera management page.
+
 ## [0.4.1] - 2026-04-05
 
 ### Added
