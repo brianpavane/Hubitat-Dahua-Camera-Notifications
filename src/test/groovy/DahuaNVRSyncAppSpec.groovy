@@ -3,6 +3,31 @@ import spock.lang.Specification
 
 class DahuaNVRSyncAppSpec extends Specification {
 
+    def "initialize pushes connection settings to parent even before discovery exists"() {
+        given:
+        def harness = new HubitatScriptHarness()
+        harness.settings.nvrHost = '192.168.1.10'
+        harness.settings.nvrPort = 80
+        harness.settings.nvrUsername = 'admin'
+        harness.settings.nvrPassword = 'secret'
+
+        def app = harness.loadScript('DahuaNVRSyncApp.groovy')
+
+        when:
+        app.initialize()
+
+        then:
+        def parent = harness.childDevices['dahua-nvr-12345']
+        parent != null
+        parent.commandCalls.find { it.name == 'applyConnectionSettings' } != null
+        def payload = new JsonSlurper().parseText(parent.commandCalls.find { it.name == 'applyConnectionSettings' }.json as String) as Map
+        payload.host == '192.168.1.10'
+        payload.port == 80
+        payload.username == 'admin'
+        payload.password == 'secret'
+        payload.cameraCount == 0
+    }
+
     def "discovery stages cameras without creating child devices until apply"() {
         given:
         def harness = new HubitatScriptHarness()
@@ -303,6 +328,8 @@ class DahuaNVRSyncAppSpec extends Specification {
         harness.state.connectionTestResult.contains('SERIAL1')
         harness.state.connectionTestTime != null
         harness.logsAt('INFO').any { it.contains('connection test passed') }
+        def parent = harness.childDevices['dahua-nvr-12345']
+        parent.commandCalls.find { it.name == 'applyConnectionSettings' } != null
     }
 
     def "testConnection shows pool-saturation guidance when HTTP pool is exhausted"() {
@@ -324,7 +351,7 @@ class DahuaNVRSyncAppSpec extends Specification {
         harness.state.connectionTestResult.contains('Wait 60 seconds')
         harness.state.connectionTestResult.contains('192.168.1.10:80')
         harness.state.connectionTestTime != null
-        harness.logsAt('WARN').any { it.contains('could not reach') }
+        harness.logsAt('WARN').any { it.contains('HTTP pool is saturated') }
     }
 
     def "testConnection shows timeout guidance when NVR does not respond"() {
@@ -344,7 +371,7 @@ class DahuaNVRSyncAppSpec extends Specification {
         then:
         harness.state.connectionTestResult.contains('Timed out')
         harness.state.connectionTestResult.contains('192.168.1.10:80')
-        harness.logsAt('WARN').any { it.contains('could not reach') }
+        harness.logsAt('WARN').any { it.contains('Timed out connecting') }
     }
 
     def "testConnection stores incomplete-config message when credentials are missing"() {

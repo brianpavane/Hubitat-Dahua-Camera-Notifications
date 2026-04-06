@@ -3,7 +3,7 @@ import groovy.json.JsonSlurper
 import groovy.transform.Field
 import java.security.MessageDigest
 
-@Field static final String APP_VERSION = "0.4.3"
+@Field static final String APP_VERSION = "0.4.4"
 @Field static final List<String> DEFAULT_MOTION_EVENTS = [
     "VideoMotion",
     "SmartMotionHuman",
@@ -21,7 +21,7 @@ definition(
     iconUrl: "https://raw.githubusercontent.com/brianpavane/Hubitat-Dahua-Camera-Notifications/main/assets/dahua-nvr-sync-icon.svg",
     iconX2Url: "https://raw.githubusercontent.com/brianpavane/Hubitat-Dahua-Camera-Notifications/main/assets/dahua-nvr-sync-icon.svg",
     importUrl: "https://raw.githubusercontent.com/brianpavane/Hubitat-Dahua-Camera-Notifications/main/DahuaNVRSyncApp.groovy",
-    singleInstance: false,
+    singleInstance: true,
     installOnOpen: false
 )
 
@@ -45,18 +45,19 @@ def updated() {
 }
 
 def initialize() {
+    debugLog "Initializing Dahua NVR Sync ${APP_VERSION}"
     ensureParentDevice()
     subscribeToParent()
     if (settings.autoSyncDaily) {
         schedule("0 0 3 * * ?", "discoverAndApplyConfiguredCameras")
     }
-    if (state.discoveredCameras) {
+    if (hasConnectionSettings()) {
         updateParentMetadata([
             serialNumber: state.nvrSerialNumber ?: digestFallbackId(),
             model       : state.nvrModel ?: "Dahua NVR"
-        ])
+        ], "initialize")
     }
-    if (settings.nvrHost && settings.nvrUsername && settings.nvrPassword && state.discoveredCameras) {
+    if (hasConnectionSettings() && state.discoveredCameras) {
         applyConfiguredCameras()
         refreshParentConnection()
     }
@@ -176,6 +177,11 @@ private void testConnection() {
         state.connectionTestTime = nowIso()
         return
     }
+    updateParentMetadata([
+        serialNumber: state.nvrSerialNumber ?: digestFallbackId(),
+        model       : state.nvrModel ?: "Dahua NVR"
+    ], "testConnection")
+    debugLog "Testing Dahua connection to ${settings.nvrHost}:${settings.nvrPort ?: 80} as ${settings.nvrUsername}"
     try {
         Map info = dahuaDigestGet("/cgi-bin/magicBox.cgi?action=getSystemInfo")
         String model = info.deviceType ?: info.updateSerial ?: info.processor ?: "Dahua NVR"
@@ -186,8 +192,9 @@ private void testConnection() {
         state.connectionTestResult = "Authentication failed (HTTP ${e.statusCode}) — check username and password"
         log.warn "Dahua connection test: authentication failed with HTTP ${e.statusCode} at ${settings.nvrHost}"
     } catch (Exception e) {
-        state.connectionTestResult = interpretConnectivityError(e.message)
-        log.warn "Dahua connection test: could not reach ${settings.nvrHost}: ${e.message}"
+        String friendly = interpretConnectivityError(e.message)
+        state.connectionTestResult = friendly
+        log.warn "Dahua connection test: ${friendly}"
     }
     state.connectionTestTime = nowIso()
 }
@@ -225,7 +232,7 @@ def discoverCameras() {
     state.channelIndexOffset = (discovery.channelIndexOffset ?: 0) as Integer
     state.discoveredCameras = mergeCameraPreferences(discovery.cameras ?: [:])
     ensureParentDevice()
-    updateParentMetadata(discovery)
+    updateParentMetadata(discovery, "discoverCameras")
     log.info "Dahua discovery staged: ${(state.discoveredCameras ?: [:]).size()} cameras"
 }
 
@@ -237,7 +244,7 @@ def applyConfiguredCameras() {
     updateParentMetadata([
         serialNumber: state.nvrSerialNumber ?: digestFallbackId(),
         model       : state.nvrModel ?: "Dahua NVR"
-    ])
+    ], "applyConfiguredCameras")
     reapplyConfiguredCameras()
     log.info "Applied configured Dahua cameras: ${(state.discoveredCameras ?: [:]).findAll { k, v -> v.stale != true }.size()} channels"
 }
@@ -409,10 +416,10 @@ private void reapplyConfiguredCameras() {
     syncChildDevices()
 }
 
-private void updateParentMetadata(Map discovery) {
+private void updateParentMetadata(Map discovery, String reason = "unspecified") {
     def parent = ensureParentDevice()
     Integer cameraCount = (state.discoveredCameras ?: [:]).size()
-    parent.applyConnectionSettings(JsonOutput.toJson([
+    Map payload = [
         host             : settings.nvrHost,
         port             : (settings.nvrPort ?: 80) as Integer,
         username         : settings.nvrUsername,
@@ -422,6 +429,18 @@ private void updateParentMetadata(Map discovery) {
         model            : discovery.model ?: state.nvrModel ?: "Dahua NVR",
         cameraCount      : cameraCount,
         eventCodes       : ["All"]
+    ]
+    debugLog "Pushing parent connection settings (${reason}) for ${payload.host}:${payload.port} as ${payload.username}; cameras=${cameraCount}"
+    parent.applyConnectionSettings(JsonOutput.toJson([
+        host             : payload.host,
+        port             : payload.port,
+        username         : payload.username,
+        password         : payload.password,
+        debugEnabled     : payload.debugEnabled,
+        serialNumber     : payload.serialNumber,
+        model            : payload.model,
+        cameraCount      : payload.cameraCount,
+        eventCodes       : payload.eventCodes
     ]))
     parent.sendEvent(name: "cameraCount", value: cameraCount)
     parent.sendEvent(name: "lastSync", value: state.lastSync)
@@ -438,8 +457,10 @@ private def ensureParentDevice() {
     String dni = parentDni()
     def existing = getChildDevice(dni)
     if (existing) {
+        debugLog "Reusing existing parent device ${dni}"
         return existing
     }
+    debugLog "Creating parent device ${dni}"
     return addChildDevice("bpavane", "Dahua NVR", dni, [
         isComponent: false,
         name       : "Dahua NVR",
@@ -459,6 +480,7 @@ def handleParentRawEvent(evt) {
     if (!evt?.value) {
         return
     }
+    debugLog "Parent raw event received: ${evt.value}"
 
     Map envelope
     try {
@@ -480,6 +502,7 @@ def handleParentRawEvent(evt) {
     // realigns the incoming index with the stored camera key.
     Integer channelOffset = (state.channelIndexOffset ?: 0) as Integer
     if (channelOffset != 0 && channel.isInteger()) {
+        debugLog "Applying channel offset ${channelOffset} to event channel ${channel}"
         channel = (channel.toInteger() + channelOffset).toString()
     }
 
@@ -514,6 +537,7 @@ def handleParentRawEvent(evt) {
         return
     }
 
+    debugLog "Routing event ${envelope.code} ${envelope.action} to child ${child.deviceNetworkId} (channel ${channel})"
     envelope.motionDrivingEventTypes = motionEventsForChannel(channel)
     envelope.motionInactiveSeconds = safeMotionInactiveSeconds()
     child.applyDahuaEvent(JsonOutput.toJson(envelope))
@@ -756,6 +780,10 @@ private String normalizeChannel(Object raw) {
 private Integer safeMotionInactiveSeconds() {
     Integer raw = (settings.motionInactiveSeconds ?: 30) as Integer
     return Math.max(5, Math.min(raw, 120))
+}
+
+private boolean hasConnectionSettings() {
+    return settings.nvrHost && settings.nvrUsername && settings.nvrPassword
 }
 
 private Map<String, String> supportedMotionEventOptions() {

@@ -13,6 +13,11 @@ class DahuaRepositorySpec extends Specification {
         'DahuaCameraDriver.groovy' | 'importUrl: "https://raw.githubusercontent.com/brianpavane/Hubitat-Dahua-Camera-Notifications/main/DahuaCameraDriver.groovy"'
     }
 
+    def "app is configured as a single Hubitat app instance"() {
+        expect:
+        new File('DahuaNVRSyncApp.groovy').text.contains('singleInstance: true')
+    }
+
     def "readme includes bulk-file-manager-style import instructions for all Hubitat files"() {
         given:
         String readme = new File('README.md').text

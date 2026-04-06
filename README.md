@@ -1,13 +1,15 @@
 # Hubitat Dahua Camera Notifications
 
-**Version:** 0.4.3  
+**Version:** 0.4.4  
 **Author:** Brian Pavane  
 **Namespace:** `bpavane`  
 **Category:** Safety & Security  
 
 Read-only Hubitat integration for Dahua NVRs that discovers recorder-connected cameras, creates one Hubitat child device per camera, and maps Dahua motion-related events into Hubitat automations.
 
-Version `0.4.3` is an early field-test release focused on:
+The app is intended to run as a single Hubitat app instance. Under normal operation there should be only one `Dahua NVR` parent device for the installed app instance.
+
+Version `0.4.4` is an early field-test release focused on:
 
 - Dahua NVR discovery
 - one child device per discovered camera channel
@@ -32,7 +34,7 @@ Expect some model-specific differences during early testing. Extra debug logging
 - [ROADMAP.md](ROADMAP.md): roadmap
 - [CHANGELOG.md](CHANGELOG.md): release history
 
-## Features in 0.4.3
+## Features in 0.4.4
 
 - Connect to a Dahua NVR over the local network
 - Discover attached camera channels
@@ -64,7 +66,7 @@ Expect some model-specific differences during early testing. Extra debug logging
 
 ## Current v1 Scope
 
-Version `0.4.3` is read-only. It does not:
+Version `0.4.4` is read-only. It does not:
 
 - change camera or NVR settings
 - enable or disable Dahua analytics
@@ -312,6 +314,10 @@ The child devices can then be used in:
 
 The `Dahua NVR` parent device is the integration's connection, health, and event-stream control point. It holds the recorder connection metadata, manages the long-lived Dahua stream, exposes troubleshooting fields, and forwards raw Dahua events to the app for child-camera routing.
 
+The app is the source of truth for recorder credentials. The parent device does not expose editable username or password fields. Instead, the app pushes the current host, port, username, and password down to the parent whenever app settings are saved, when connection testing runs, and during discovery/apply flows.
+
+Under normal operation there should only be one parent device for the installed app. If you ever see multiple parent devices for the same recorder IP, that usually means multiple app instances were installed before the app was switched to single-instance behavior.
+
 ### Parent driver commands
 
 - `Refresh`
@@ -329,8 +335,6 @@ The `Dahua NVR` parent device is the integration's connection, health, and event
 
 - `Enable debug logging`
   Enables verbose parent-driver logging and richer connection trace entries.
-- `NVR Password`
-  Stored in the parent driver as a password preference so it is not kept in plaintext inside visible connection state.
 - `Stream request mode`
   Selects how the parent formats the event-stream request. Available modes are:
 - `auto`
@@ -428,6 +432,7 @@ The `Dahua NVR` parent device is the integration's connection, health, and event
 ### How to use the parent diagnostics
 
 - Use `Refresh` first when the parent appears stale after an app upgrade or settings change.
+- Remember that credential changes happen in the app, not the parent device. After changing app credentials, click **Done** in the app; the parent will receive the new host, port, username, and password automatically.
 - Look at `connectionPhase`, `lastAttemptSummary`, and `connectionTrace` first. Those three fields usually tell the story fastest.
 - If `lastProbeStatus` is `digest_challenge_received` but the stream never reaches `stream_connected`, the event-stream transport is the likely problem rather than basic auth.
 - If `lastSocketStatus` never reports an open socket and `lastHttpStatusLine` stays blank, the raw-socket path is probably failing before the NVR returns HTTP headers.
@@ -449,9 +454,11 @@ Normal logs include:
 Debug logs include:
 
 - Dahua discovery payload details
+- app-to-parent credential sync activity
+- per-event routing and channel-offset adjustments
 - unknown event shapes
 - channel mapping behavior
-- reconnect troubleshooting
+- request mode, raw-socket operation mode, chunk counts, probe behavior, and reconnect troubleshooting
 
 For early testing, keeping debug logs enabled is recommended until your NVR model is behaving correctly.
 

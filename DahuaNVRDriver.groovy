@@ -3,7 +3,7 @@ import groovy.json.JsonSlurper
 import groovy.transform.Field
 import java.security.MessageDigest
 
-@Field static final String DRIVER_VERSION = "0.4.3"
+@Field static final String DRIVER_VERSION = "0.4.4"
 @Field static final List<Integer> RECONNECT_SCHEDULE_SECONDS = [5, 15, 30, 60]
 @Field static final Integer MAX_STREAM_BUFFER_BYTES = 131072
 @Field static final Integer HANDSHAKE_TIMEOUT_SECONDS = 25
@@ -83,7 +83,6 @@ metadata {
 
     preferences {
         input name: "logEnable", type: "bool", title: "Enable debug logging", defaultValue: true
-        input name: "nvrPassword", type: "password", title: "NVR Password", required: false
         input name: "streamRequestMode", type: "enum", title: "Stream request mode", options: STREAM_REQUEST_MODES.keySet() as List, defaultValue: "auto", required: false
     }
 }
@@ -118,6 +117,7 @@ def applyConnectionSettings(String json) {
         requestMode : normalizeRequestMode(config.requestMode ?: settings.streamRequestMode)
     ]
     sanitizeConnectionState()
+    traceConnection("Applied connection settings from app for ${config.host}:${config.port ?: 80} as ${config.username}", "apply_connection")
 
     sendEvent(name: "serialNumber", value: config.serialNumber ?: "")
     sendEvent(name: "model", value: config.model ?: "Dahua NVR")
@@ -157,7 +157,7 @@ def openEventStream() {
     sendEvent(name: "rawChunkCount", value: 0)
     sendEvent(name: "streamBufferBytes", value: 0)
     sendEvent(name: "lastAttemptSummary", value: "")
-    traceConnection("Opening event stream using path ${state.lastRequestPath}", "open_event_stream")
+    traceConnection("Opening event stream using path ${state.lastRequestPath} with mode ${effectiveRequestMode()} for ${config.host}:${config.port}", "open_event_stream")
     prepareEventRequest()
     sendEvent(name: "connectionPhase", value: "opening_socket")
     connectSocket()
@@ -189,7 +189,7 @@ def runRawSocketHttpTest(String path = "/cgi-bin/magicBox.cgi?action=getSystemIn
     sendEvent(name: "rawChunkCount", value: 0)
     sendEvent(name: "streamBufferBytes", value: 0)
     sendEvent(name: "lastAttemptSummary", value: "Raw socket test pending for ${state.rawSocketTestPath}")
-    traceConnection("Starting raw socket HTTP test for ${state.rawSocketTestPath}", "raw_socket_test")
+    traceConnection("Starting raw socket HTTP test for ${state.rawSocketTestPath} with mode ${effectiveRequestMode()} to ${config.host}:${config.port}", "raw_socket_test")
     prepareTestRequest()
     sendEvent(name: "connectionPhase", value: "opening_socket")
     connectSocket()
@@ -243,7 +243,7 @@ private void prepareEventRequest() {
     sendEvent(name: "lastProbeHttpStatus", value: "")
     sendEvent(name: "lastProbeErrorClass", value: "")
     String path = eventPath()
-    traceConnection("Probing auth via HTTP for ${path}", "probing_auth")
+    traceConnection("Probing auth via HTTP for ${path} using mode ${effectiveRequestMode()}", "probing_auth")
 
     try {
         httpGet(uri: "http://${config.host}:${config.port ?: 80}", path: path, timeout: 10) { resp ->
@@ -276,7 +276,7 @@ private void prepareEventRequest() {
                     cnonce
                 )
                 sendEvent(name: "lastProbeStatus", value: "digest_challenge_received")
-                traceConnection("Prepared digest auth from HTTP probe challenge", "probing_auth")
+                traceConnection("Prepared digest auth from HTTP probe challenge for ${path}", "probing_auth")
                 return
             }
             sendEvent(name: "lastProbeStatus", value: "http_401_without_digest")
@@ -295,7 +295,7 @@ private void prepareTestRequest() {
     sendEvent(name: "lastProbeStatus", value: "starting")
     sendEvent(name: "lastProbeHttpStatus", value: "")
     sendEvent(name: "lastProbeErrorClass", value: "")
-    traceConnection("Probing auth via HTTP for test path ${path}", "raw_socket_test")
+    traceConnection("Probing auth via HTTP for test path ${path} using mode ${effectiveRequestMode()}", "raw_socket_test")
 
     try {
         httpGet(uri: "http://${config.host}:${config.port ?: 80}", path: path, timeout: 10) { resp ->
@@ -320,7 +320,7 @@ private void prepareTestRequest() {
                 String password = settings.nvrPassword ?: ""
                 state.precomputedAuthorization = buildDigestAuthorization("GET", path, config.username, password, challenge, nc, cnonce)
                 sendEvent(name: "lastProbeStatus", value: "digest_challenge_received")
-                traceConnection("Prepared digest auth for raw socket test", "raw_socket_test")
+                traceConnection("Prepared digest auth for raw socket test path ${path}", "raw_socket_test")
                 return
             }
         }
@@ -333,7 +333,7 @@ private void connectSocket() {
     Map config = state.connection ?: [:]
     try {
         updateConnectionStatus("reconnecting", "reconnecting")
-        traceConnection("Opening raw socket to ${config.host}:${config.port}", "opening_socket")
+        traceConnection("Opening raw socket to ${config.host}:${config.port} for operation ${state.operationMode ?: 'stream'}", "opening_socket")
         try {
             interfaces.rawSocket.connect("${config.host}:${config.port}", byteInterface: false)
             sendEvent(name: "lastConnectMethod", value: "hostPort")
@@ -361,7 +361,7 @@ private void sendInitialUnauthenticatedRequest() {
     sendEvent(name: "connectionPhase", value: phase)
     String request = buildHttpRequest(eventPath(), authorizationHeader)
     sendEvent(name: "lastRequestPreview", value: abbreviate(redactSensitive(request), 200))
-    traceConnection("Sending event-stream request${authorizationHeader ? ' with precomputed digest auth' : ''}", phase)
+    traceConnection("Sending event-stream request${authorizationHeader ? ' with precomputed digest auth' : ''} using ${effectiveRequestMode()}", phase)
     sendEvent(name: "lastAttemptSummary", value: "Stream request sent using mode ${effectiveRequestMode()} to ${eventPath()}")
     interfaces.rawSocket.sendMessage(request)
     runIn(HANDSHAKE_TIMEOUT_SECONDS, "handshakeWatchdog")
@@ -379,7 +379,7 @@ private void sendRawSocketTestRequest() {
     sendEvent(name: "lastRawSocketTestPath", value: path)
     sendEvent(name: "lastRawSocketTestStatus", value: "request_sent")
     sendEvent(name: "lastAttemptSummary", value: "Raw socket test request sent using mode ${effectiveRequestMode()} to ${path}")
-    traceConnection("Sending raw socket test request${authorizationHeader ? ' with precomputed digest auth' : ''}", "sending_test_request")
+    traceConnection("Sending raw socket test request${authorizationHeader ? ' with precomputed digest auth' : ''} using ${effectiveRequestMode()}", "sending_test_request")
     interfaces.rawSocket.sendMessage(request)
     runIn(HANDSHAKE_TIMEOUT_SECONDS, "handshakeWatchdog")
 }
@@ -407,6 +407,7 @@ def parse(String message) {
     state.rawChunkCount = ((state.rawChunkCount ?: 0) as Integer) + 1
     sendEvent(name: "rawChunkCount", value: state.rawChunkCount)
     sendEvent(name: "lastRawMessageSample", value: abbreviate(redactSensitive(message), 120))
+    debugLog "Raw socket chunk ${state.rawChunkCount} received (${message.size()} bytes)"
 
     state.streamBuffer = (state.streamBuffer ?: "") + message
     sendEvent(name: "streamBufferBytes", value: (state.streamBuffer?.size() ?: 0))
@@ -493,6 +494,7 @@ private void handleHttpHeaders(String rawHeaders) {
             updateConnectionStatus("authFailed", "stopped")
             return
         }
+        traceConnection("401 digest challenge received for ${state.lastRequestPath}", "auth_challenge")
         sendAuthenticatedRequest(challenge)
         return
     }
@@ -547,7 +549,7 @@ private void sendAuthenticatedRequest(Map challenge) {
     sendEvent(name: "connectionPhase", value: "sending_authenticated_request")
     String request = buildHttpRequest(eventPath(), authHeader)
     sendEvent(name: "lastRequestPreview", value: abbreviate(redactSensitive(request), 200))
-    traceConnection("Responding to Dahua digest challenge", "sending_authenticated_request")
+    traceConnection("Responding to Dahua digest challenge for ${state.lastRequestPath}", "sending_authenticated_request")
     interfaces.rawSocket.sendMessage(request)
     runIn(HANDSHAKE_TIMEOUT_SECONDS, "handshakeWatchdog")
 }
@@ -727,7 +729,7 @@ private void scheduleReconnect(String reason) {
     sendEvent(name: "connectionPhase", value: "scheduled_reconnect")
     updateConnectionStatus("reconnecting", "reconnecting")
 
-    traceConnection("Scheduling reconnect attempt ${nextAttempt} in ${delay}s because ${reason}", "scheduled_reconnect")
+    traceConnection("Scheduling reconnect attempt ${nextAttempt} in ${delay}s because ${reason} (mode=${effectiveRequestMode()}, path=${state.lastRequestPath})", "scheduled_reconnect")
     runIn(delay, "attemptReconnect")
 }
 

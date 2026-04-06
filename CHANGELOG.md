@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.4.4] - 2026-04-05
+
+### Changed
+
+- The app is now explicitly single-instance in Hubitat, preventing multiple installed app instances from creating duplicate parent devices under normal use.
+- The app is now the source of truth for recorder credentials and pushes host, port, username, and password down to the parent during initialize, connection testing, discovery, and apply flows.
+- Logging and diagnostics are substantially more verbose across both the app and parent driver, including parent creation and reuse, credential sync, routing details, request mode, operation mode, and raw chunk activity.
+
+### Fixed
+
+- Removed the visible parent-driver password preference so the parent no longer presents a `Change Password` style field in the device UI.
+- `Test Connection` warning logs now use the same friendly interpreted connectivity messages shown in the app UI instead of raw Java exception text.
+
 ## [0.4.3] - 2026-04-05
 
 ### Fixed
