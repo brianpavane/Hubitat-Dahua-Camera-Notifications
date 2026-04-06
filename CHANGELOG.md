@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.4.0] - 2026-04-05
+
+### Fixed
+
+- Event-stream routing now works on Dahua NVRs that report 0-based ChannelTitle config keys
+  (`ChannelTitle[0]`, `ChannelTitle[1]`…). Discovery detects the 0-based numbering, shifts channel
+  names to 1-based for Hubitat devices, and stores a `channelIndexOffset` so incoming event-stream
+  `index` values are adjusted to match before lookup. Previously, every event was silently dropped
+  as an unknown channel on these NVR models.
+
+### Added
+
+- Event filtering by channel: duplicate `channel:code:action` fingerprints arriving within 500 ms
+  are dropped. Prevents double-processing on Dahua firmware that emits the same physical event at
+  both the camera-subsystem level and the NVR aggregate level simultaneously.
+- Three new regression tests covering 0-based offset detection, offset-adjusted event routing, and
+  500 ms fingerprint-based deduplication.
+
 ## [0.3.5] - 2026-04-05
 
 ### Added

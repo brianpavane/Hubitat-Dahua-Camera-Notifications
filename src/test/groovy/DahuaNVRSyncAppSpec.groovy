@@ -179,6 +179,92 @@ class DahuaNVRSyncAppSpec extends Specification {
         harness.logsAt('DEBUG').any { it.contains('Shifted zero-based Dahua channel names') }
     }
 
+    def "discovery detects zero-based channel names and stores channelIndexOffset"() {
+        given:
+        def harness = new HubitatScriptHarness()
+        harness.settings.nvrHost = '192.168.1.10'
+        harness.settings.nvrPort = 80
+        harness.settings.nvrUsername = 'admin'
+        harness.settings.nvrPassword = 'secret'
+        harness.settings.motionInactiveSeconds = 30
+        harness.settings.enableDebugLogging = true
+
+        harness.httpGetResponses['http://192.168.1.10:80/cgi-bin/magicBox.cgi?action=getSystemInfo'] =
+            HubitatScriptHarness.textResponse(200, 'serialNumber=SERIAL1\ndeviceType=NVR\n')
+        harness.httpGetResponses['http://192.168.1.10:80/cgi-bin/magicBox.cgi?action=getDeviceType'] =
+            HubitatScriptHarness.textResponse(200, 'type=Dahua NVR\n')
+        harness.httpGetResponses['http://192.168.1.10:80/cgi-bin/configManager.cgi?action=getConfig&name=ChannelTitle'] =
+            HubitatScriptHarness.textResponse(200, 'table.ChannelTitle[0].Name=Front Door\ntable.ChannelTitle[1].Name=Driveway\n')
+        harness.httpGetResponses['http://192.168.1.10:80/cgi-bin/configManager.cgi?action=getConfig&name=VideoWidget'] =
+            HubitatScriptHarness.textResponse(200, '')
+        harness.httpGetResponses['http://192.168.1.10:80/cgi-bin/configManager.cgi?action=getConfig&name=RemoteDevice'] =
+            HubitatScriptHarness.textResponse(200, '')
+
+        def app = harness.loadScript('DahuaNVRSyncApp.groovy')
+
+        when:
+        app.discoverCameras()
+
+        then:
+        harness.state.channelIndexOffset == 1
+        harness.state.discoveredCameras.keySet() == ['1', '2'] as Set
+        harness.logsAt('DEBUG').any { it.contains('Channel index offset: 1') }
+    }
+
+    def "channel index offset routes zero-based event indexes to one-based discovered cameras"() {
+        given:
+        def harness = new HubitatScriptHarness()
+        harness.settings.nvrHost = '192.168.1.10'
+        harness.settings.nvrPort = 80
+        harness.settings.nvrUsername = 'admin'
+        harness.settings.nvrPassword = 'secret'
+        harness.settings.motionInactiveSeconds = 30
+        harness.settings.globalMotionEvents = ['VideoMotion']
+        harness.settings.enableDebugLogging = true
+
+        def app = harness.loadScript('DahuaNVRSyncApp.groovy')
+        def child = new DeviceWrapper(deviceNetworkId: 'dahua-SERIAL1-ch-1', label: 'Front Door')
+        harness.childDevices['dahua-nvr-12345'] = new DeviceWrapper(deviceNetworkId: 'dahua-nvr-12345', label: 'Dahua NVR')
+        harness.childDevices['dahua-SERIAL1-ch-1'] = child
+        harness.state.nvrSerialNumber = 'SERIAL1'
+        harness.state.channelIndexOffset = 1
+        harness.state.discoveredCameras = ['1': [channel: '1', discoveredName: 'Front Door', enabled: true]]
+
+        when:
+        app.handleParentRawEvent([value: '{"code":"VideoMotion","action":"start","channel":"0","timestamp":"2026-04-05T09:00:00-0400"}'])
+
+        then:
+        child.commandCalls.size() == 1
+        child.commandCalls[0].name == 'applyDahuaEvent'
+    }
+
+    def "duplicate events within 500ms are filtered by channel fingerprint"() {
+        given:
+        def harness = new HubitatScriptHarness()
+        harness.settings.nvrHost = '192.168.1.10'
+        harness.settings.nvrPort = 80
+        harness.settings.nvrUsername = 'admin'
+        harness.settings.nvrPassword = 'secret'
+        harness.settings.motionInactiveSeconds = 30
+        harness.settings.globalMotionEvents = ['VideoMotion']
+        harness.settings.enableDebugLogging = true
+
+        def app = harness.loadScript('DahuaNVRSyncApp.groovy')
+        def child = new DeviceWrapper(deviceNetworkId: 'dahua-SERIAL1-ch-1', label: 'Driveway')
+        harness.childDevices['dahua-nvr-12345'] = new DeviceWrapper(deviceNetworkId: 'dahua-nvr-12345', label: 'Dahua NVR')
+        harness.childDevices['dahua-SERIAL1-ch-1'] = child
+        harness.state.nvrSerialNumber = 'SERIAL1'
+        harness.state.discoveredCameras = ['1': [channel: '1', discoveredName: 'Driveway', enabled: true]]
+
+        when:
+        app.handleParentRawEvent([value: '{"code":"VideoMotion","action":"start","channel":"1","timestamp":"2026-04-05T09:00:00-0400"}'])
+        app.handleParentRawEvent([value: '{"code":"VideoMotion","action":"start","channel":"1","timestamp":"2026-04-05T09:00:00-0400"}'])
+
+        then:
+        child.commandCalls.size() == 1
+        harness.logsAt('DEBUG').any { it.contains('Dropping duplicate event') }
+    }
+
     def "channel zero is discarded when positive camera channels are discovered"() {
         given:
         def harness = new HubitatScriptHarness()

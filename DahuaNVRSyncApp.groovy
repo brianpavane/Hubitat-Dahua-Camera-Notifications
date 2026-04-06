@@ -3,7 +3,7 @@ import groovy.json.JsonSlurper
 import groovy.transform.Field
 import java.security.MessageDigest
 
-@Field static final String APP_VERSION = "0.3.5"
+@Field static final String APP_VERSION = "0.4.0"
 @Field static final List<String> DEFAULT_MOTION_EVENTS = [
     "VideoMotion",
     "SmartMotionHuman",
@@ -176,6 +176,7 @@ def discoverCameras() {
     state.lastSync = nowIso()
     state.nvrSerialNumber = discovery.serialNumber ?: digestFallbackId()
     state.nvrModel = discovery.model ?: "Dahua NVR"
+    state.channelIndexOffset = (discovery.channelIndexOffset ?: 0) as Integer
     state.discoveredCameras = mergeCameraPreferences(discovery.cameras ?: [:])
     ensureParentDevice()
     updateParentMetadata(discovery)
@@ -197,12 +198,13 @@ def applyConfiguredCameras() {
 
 private Map performDiscovery() {
     Map result = [
-        systemInfo    : [:],
-        deviceType    : null,
-        firmware      : null,
-        serialNumber  : null,
-        model         : null,
-        cameras       : [:]
+        systemInfo        : [:],
+        deviceType        : null,
+        firmware          : null,
+        serialNumber      : null,
+        model             : null,
+        cameras           : [:],
+        channelIndexOffset: 0
     ]
 
     Map systemInfo = dahuaGetAsMap("/cgi-bin/magicBox.cgi?action=getSystemInfo")
@@ -220,8 +222,10 @@ private Map performDiscovery() {
     Map videoWidget = dahuaGetAsMap("/cgi-bin/configManager.cgi?action=getConfig&name=VideoWidget", false)
     Map remoteDevices = dahuaGetAsMap("/cgi-bin/configManager.cgi?action=getConfig&name=RemoteDevice", false)
 
-    Map<String, String> channelTitleNames = normalizeNameChannels(extractChannelNames(channelTitles))
-    Map<String, String> videoWidgetNames = normalizeNameChannels(extractChannelNames(videoWidget))
+    Map<String, String> rawChannelTitleNames = extractChannelNames(channelTitles)
+    Map<String, String> channelTitleNames = normalizeNameChannels(rawChannelTitleNames)
+    Map<String, String> rawVideoWidgetNames = extractChannelNames(videoWidget)
+    Map<String, String> videoWidgetNames = normalizeNameChannels(rawVideoWidgetNames)
 
     Map<String, Map> cameras = [:]
     channelTitleNames.each { String channel, String name ->
@@ -270,6 +274,16 @@ private Map performDiscovery() {
 
     cameras = normalizeDiscoveredCameras(cameras)
     result.cameras = cameras
+
+    // Detect whether the NVR reported 0-based channel indexes (e.g., ChannelTitle[0], ChannelTitle[1]).
+    // When true, the event stream will also use 0-based index fields, which must be shifted +1 before
+    // matching against the 1-based discoveredCameras keys that normalizeNameChannels produced.
+    Map<String, String> rawPrimaryNames = channelTitleNames ? rawChannelTitleNames : rawVideoWidgetNames
+    List<Integer> rawNums = rawPrimaryNames?.keySet()
+        ?.findAll { it?.isInteger() }
+        ?.collect { it.toInteger() } ?: []
+    result.channelIndexOffset = (rawNums && rawNums.min() == 0) ? 1 : 0
+    debugLog "Channel index offset: ${result.channelIndexOffset} (raw channel keys: ${rawNums.sort()})"
     debugLog "Discovery result: ${JsonOutput.toJson(result)}"
     return result
 }
@@ -413,6 +427,29 @@ def handleParentRawEvent(evt) {
         debugLog "Dropping event without a usable channel: ${evt.value}"
         return
     }
+
+    // Apply the channel index offset detected during discovery.  When the NVR reported 0-based
+    // ChannelTitle keys (ChannelTitle[0], ChannelTitle[1]...), discovery shifted them to 1-based
+    // camera keys, but the event stream still emits 0-based index values.  Adding the offset here
+    // realigns the incoming index with the stored camera key.
+    Integer channelOffset = (state.channelIndexOffset ?: 0) as Integer
+    if (channelOffset != 0 && channel.isInteger()) {
+        channel = (channel.toInteger() + channelOffset).toString()
+    }
+
+    // Event filtering by channel: drop duplicate channel+code+action combos within 500 ms.
+    // Some Dahua firmware emits the same physical event twice in rapid succession — once at the
+    // camera subsystem level and once at the NVR aggregate level — both with the same channel index.
+    String fingerprint = "${channel}:${envelope.code}:${envelope.action}"
+    Long nowMs = new Date().time
+    Map fingerprints = (state.recentEventFingerprints ?: [:]) as Map
+    Long lastSeen = fingerprints[fingerprint] as Long
+    if (lastSeen && (nowMs - lastSeen) < 500L) {
+        debugLog "Dropping duplicate event ${fingerprint} (${nowMs - lastSeen}ms ago)"
+        return
+    }
+    fingerprints[fingerprint] = nowMs
+    state.recentEventFingerprints = fingerprints.findAll { String k, Object ts -> (nowMs - (ts as Long)) < 10000L }
 
     Map cam = (state.discoveredCameras ?: [:])[channel]
     if (!cam) {
