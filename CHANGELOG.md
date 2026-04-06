@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.4.1] - 2026-04-05
+
+### Added
+
+- README now includes a full parent-driver reference covering commands, preferences, status fields, diagnostic attributes, and troubleshooting guidance
+
+### Fixed
+
+- Replaced Hubitat-incompatible `e.getClass().getName()` usage in the parent driver with a safe exception-class helper so the parent code imports correctly on Hubitat
+- Parent diagnostic exception-class capture is preserved without using forbidden Hubitat expression forms
+
 ## [0.4.0] - 2026-04-05
 
 ### Fixed

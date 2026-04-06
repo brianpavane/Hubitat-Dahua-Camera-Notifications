@@ -1,7 +1,7 @@
 import groovy.json.JsonSlurper
 import groovy.transform.Field
 
-@Field static final String DRIVER_VERSION = "0.4.0"
+@Field static final String DRIVER_VERSION = "0.4.1"
 
 metadata {
     definition(

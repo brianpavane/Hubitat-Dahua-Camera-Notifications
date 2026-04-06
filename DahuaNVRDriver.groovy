@@ -3,7 +3,7 @@ import groovy.json.JsonSlurper
 import groovy.transform.Field
 import java.security.MessageDigest
 
-@Field static final String DRIVER_VERSION = "0.4.0"
+@Field static final String DRIVER_VERSION = "0.4.1"
 @Field static final List<Integer> RECONNECT_SCHEDULE_SECONDS = [5, 15, 30, 60]
 @Field static final Integer MAX_STREAM_BUFFER_BYTES = 131072
 @Field static final Integer HANDSHAKE_TIMEOUT_SECONDS = 25
@@ -258,7 +258,7 @@ private void prepareEventRequest() {
     } catch (Exception e) {
         Integer statusCode = extractStatusCode(e)
         sendEvent(name: "lastProbeHttpStatus", value: statusCode != null ? statusCode.toString() : "")
-        sendEvent(name: "lastProbeErrorClass", value: e.getClass().getName())
+        sendEvent(name: "lastProbeErrorClass", value: exceptionClassName(e))
         if (statusCode == 401) {
             String headerValue = extractHeaderValue(e, "WWW-Authenticate")
             Map challenge = parseDigestChallengeHeader(headerValue)
@@ -310,7 +310,7 @@ private void prepareTestRequest() {
     } catch (Exception e) {
         Integer statusCode = extractStatusCode(e)
         sendEvent(name: "lastProbeHttpStatus", value: statusCode != null ? statusCode.toString() : "")
-        sendEvent(name: "lastProbeErrorClass", value: e.getClass().getName())
+        sendEvent(name: "lastProbeErrorClass", value: exceptionClassName(e))
         if (statusCode == 401) {
             String headerValue = extractHeaderValue(e, "WWW-Authenticate")
             Map challenge = parseDigestChallengeHeader(headerValue)
@@ -914,6 +914,14 @@ private String extractHeaderValue(Exception e, String headerName) {
         return header?.value ?: header?.toString()
     } catch (Exception ignored) {
         return null
+    }
+}
+
+private String exceptionClassName(Exception e) {
+    try {
+        return e?.class?.name ?: ""
+    } catch (Exception ignored) {
+        return ""
     }
 }
 

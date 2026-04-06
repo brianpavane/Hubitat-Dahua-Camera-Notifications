@@ -1,13 +1,13 @@
 # Hubitat Dahua Camera Notifications
 
-**Version:** 0.4.0  
+**Version:** 0.4.1  
 **Author:** Brian Pavane  
 **Namespace:** `bpavane`  
 **Category:** Safety & Security  
 
 Read-only Hubitat integration for Dahua NVRs that discovers recorder-connected cameras, creates one Hubitat child device per camera, and maps Dahua motion-related events into Hubitat automations.
 
-Version `0.4.0` is an early field-test release focused on:
+Version `0.4.1` is an early field-test release focused on:
 
 - Dahua NVR discovery
 - one child device per discovered camera channel
@@ -32,7 +32,7 @@ Expect some model-specific differences during early testing. Extra debug logging
 - [ROADMAP.md](ROADMAP.md): roadmap
 - [CHANGELOG.md](CHANGELOG.md): release history
 
-## Features in 0.4.0
+## Features in 0.4.1
 
 - Connect to a Dahua NVR over the local network
 - Discover attached camera channels
@@ -62,7 +62,7 @@ Expect some model-specific differences during early testing. Extra debug logging
 
 ## Current v1 Scope
 
-Version `0.4.0` is read-only. It does not:
+Version `0.4.1` is read-only. It does not:
 
 - change camera or NVR settings
 - enable or disable Dahua analytics
@@ -305,6 +305,134 @@ The child devices can then be used in:
 - dashboards
 - notifications
 - motion-based automations
+
+## Parent Driver Reference
+
+The `Dahua NVR` parent device is the integration's connection, health, and event-stream control point. It holds the recorder connection metadata, manages the long-lived Dahua stream, exposes troubleshooting fields, and forwards raw Dahua events to the app for child-camera routing.
+
+### Parent driver commands
+
+- `Refresh`
+  Refreshes the parent connection state and attempts to reopen the Dahua event stream when it is not currently connected.
+- `openEventStream`
+  Starts a new Dahua event-stream attach attempt immediately.
+- `closeEventStream`
+  Closes the current event-stream socket and marks the parent stopped.
+- `applyConnectionSettings`
+  Internal command used by the app to push connection metadata, camera count, and debug settings to the parent device.
+- `runRawSocketHttpTest(path)`
+  Diagnostic command that opens a raw socket and performs a normal HTTP GET against the provided path instead of the Dahua event stream. This is useful for proving whether Hubitat can receive any HTTP response from the NVR over the raw-socket path.
+
+### Parent driver preferences
+
+- `Enable debug logging`
+  Enables verbose parent-driver logging and richer connection trace entries.
+- `NVR Password`
+  Stored in the parent driver as a password preference so it is not kept in plaintext inside visible connection state.
+- `Stream request mode`
+  Selects how the parent formats the event-stream request. Available modes are:
+- `auto`
+- `keepAliveHeartbeat`
+- `keepAliveNoHeartbeat`
+- `closeHeartbeat`
+- `closeNoHeartbeat`
+- `http10NoHeartbeat`
+
+### Parent status attributes
+
+- `networkStatus`
+  Overall parent connectivity state such as `connected`, `reconnecting`, `disconnected`, or `authFailed`.
+- `eventStreamStatus`
+  Stream-specific state such as `connected`, `reconnecting`, or `stopped`.
+- `cameraCount`
+  Total discovered camera count currently known by the app and pushed to the parent.
+- `model`
+  Dahua model or device type when discovery found one.
+- `serialNumber`
+  Recorder serial number when available.
+- `lastSync`
+  Last app discovery/sync timestamp pushed into the parent.
+- `lastEventReceived`
+  Timestamp of the last successfully parsed Dahua event.
+- `reconnectCount`
+  Current reconnect-attempt counter for the active recovery cycle.
+- `lastReconnectAttempt`
+  Timestamp of the most recent scheduled reconnect attempt.
+- `lastReconnectReason`
+  Reason for the most recent reconnect schedule or disconnect.
+- `lastDisconnectTime`
+  Timestamp when the last disconnect was handled.
+- `lastError`
+  Most recent error message after redaction.
+
+### Parent diagnostic attributes
+
+- `connectionPhase`
+  Current internal connection phase. Common values include:
+- `refresh`
+- `open_event_stream`
+- `probing_auth`
+- `opening_socket`
+- `socket_open`
+- `sending_initial_request`
+- `sending_preauthenticated_request`
+- `sending_authenticated_request`
+- `http_headers`
+- `stream_connected`
+- `handshake_timeout`
+- `scheduled_reconnect`
+- `reconnecting`
+- `raw_socket_test`
+- `sending_test_request`
+- `raw_socket_test_success`
+- `stopped`
+- `lastRequestPath`
+  The Dahua path the parent most recently attempted to open.
+- `lastRequestMode`
+  The currently selected request mode used when building stream or test requests.
+- `lastRequestPreview`
+  Sanitized preview of the last outbound raw-socket HTTP request.
+- `lastConnectMethod`
+  Which raw-socket connect signature Hubitat accepted, such as `hostPort` or `host_port`.
+- `lastSocketStatus`
+  Most recent raw-socket status callback text after redaction.
+- `lastHttpStatusLine`
+  Most recent HTTP status line received from the NVR over the raw socket.
+- `lastHeaderSample`
+  Sanitized preview of the last HTTP response headers seen by the parent.
+- `lastRawMessageSample`
+  Sanitized preview of the most recent raw chunk received from the socket.
+- `streamBufferBytes`
+  Current size of the in-memory socket buffer waiting to be parsed.
+- `rawChunkCount`
+  Count of raw socket chunks received during the current attempt.
+- `lastProbeStatus`
+  Result of the parent’s preliminary HTTP auth probe. Common values include `starting`, `digest_challenge_received`, `http_200_no_challenge`, `http_401_without_digest`, and `probe_failed`.
+- `lastProbeHttpStatus`
+  HTTP status observed during the auth probe when one was available.
+- `lastProbeErrorClass`
+  Java or Groovy exception class name from the probe path when the probe fails before a normal HTTP status is available.
+- `connectionTrace`
+  Rolling multi-line trace of the most recent connection lifecycle steps, suitable for copy/paste into troubleshooting discussions.
+- `lastAttemptSummary`
+  Short single-line summary of the most recent stream or raw-socket test attempt.
+- `lastRawSocketTestPath`
+  Path used by the most recent `runRawSocketHttpTest(...)` call.
+- `lastRawSocketTestStatus`
+  Status of the most recent raw-socket HTTP test attempt.
+- `lastRawSocketHeaderSample`
+  Sanitized preview of the HTTP headers returned by the raw-socket HTTP test.
+
+### How to use the parent diagnostics
+
+- Use `Refresh` first when the parent appears stale after an app upgrade or settings change.
+- Look at `connectionPhase`, `lastAttemptSummary`, and `connectionTrace` first. Those three fields usually tell the story fastest.
+- If `lastProbeStatus` is `digest_challenge_received` but the stream never reaches `stream_connected`, the event-stream transport is the likely problem rather than basic auth.
+- If `lastSocketStatus` never reports an open socket and `lastHttpStatusLine` stays blank, the raw-socket path is probably failing before the NVR returns HTTP headers.
+- If `streamBufferBytes` increases but `lastHttpStatusLine` stays blank, bytes are arriving but the current parser is not yet recognizing a full header boundary.
+- Use `runRawSocketHttpTest('/cgi-bin/magicBox.cgi?action=getSystemInfo')` to verify that Hubitat can receive any normal HTTP response from the NVR over the raw-socket path.
+- If the raw-socket test succeeds but the event stream still fails, try a different `Stream request mode` before changing app/device configuration.
+- If `lastRawSocketTestStatus` fails the same way as the event stream, the issue is likely below Dahua event parsing and closer to raw socket or recorder HTTP behavior.
 
 ## Logging
 
