@@ -7,6 +7,18 @@ class DahuaNVRDriverSpec extends Specification {
         Map response = [:]
     }
 
+    def "parent exposes driver version on the device page"() {
+        given:
+        def harness = new HubitatScriptHarness()
+        def driver = harness.loadScript('DahuaNVRDriver.groovy')
+
+        when:
+        driver.installed()
+
+        then:
+        harness.device.currentValue('driverVersion') == '0.4.5'
+    }
+
     def "event stream performs digest challenge then authenticates and emits motion events"() {
         given:
         def harness = new HubitatScriptHarness()

@@ -385,7 +385,8 @@ class DahuaNVRSyncAppSpec extends Specification {
         app.appButtonHandler('testConnection')
 
         then:
-        harness.state.connectionTestResult.contains('password')
+        harness.state.connectionTestResult == 'Host, username, and password are not saved yet. Click Done once, reopen the app, then run Test Connection.'
+        harness.logsAt('WARN').any { it.contains('before Hubitat had saved host/username/password settings') }
         harness.httpGetCalls.isEmpty()
     }
 

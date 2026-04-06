@@ -1,6 +1,6 @@
 # Hubitat Dahua Camera Notifications
 
-**Version:** 0.4.4  
+**Version:** 0.4.5  
 **Author:** Brian Pavane  
 **Namespace:** `bpavane`  
 **Category:** Safety & Security  
@@ -9,7 +9,7 @@ Read-only Hubitat integration for Dahua NVRs that discovers recorder-connected c
 
 The app is intended to run as a single Hubitat app instance. Under normal operation there should be only one `Dahua NVR` parent device for the installed app instance.
 
-Version `0.4.4` is an early field-test release focused on:
+Version `0.4.5` is an early field-test release focused on:
 
 - Dahua NVR discovery
 - one child device per discovered camera channel
@@ -34,7 +34,7 @@ Expect some model-specific differences during early testing. Extra debug logging
 - [ROADMAP.md](ROADMAP.md): roadmap
 - [CHANGELOG.md](CHANGELOG.md): release history
 
-## Features in 0.4.4
+## Features in 0.4.5
 
 - Connect to a Dahua NVR over the local network
 - Discover attached camera channels
@@ -63,10 +63,12 @@ Expect some model-specific differences during early testing. Extra debug logging
 - Filter duplicate events when NVR firmware emits the same physical event at multiple stream levels within 500 ms
 - Test Connection button on the main page validates credentials against the NVR before discovery is run
 - Camera discovery is explicit — opening Manage Cameras no longer triggers an automatic scan
+- In-app first-time setup flow guidance is shown on the app main page
+- Parent and child device pages expose a visible `driverVersion` attribute
 
 ## Current v1 Scope
 
-Version `0.4.4` is read-only. It does not:
+Version `0.4.5` is read-only. It does not:
 
 - change camera or NVR settings
 - enable or disable Dahua analytics

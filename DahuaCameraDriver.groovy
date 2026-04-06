@@ -1,7 +1,7 @@
 import groovy.json.JsonSlurper
 import groovy.transform.Field
 
-@Field static final String DRIVER_VERSION = "0.4.4"
+@Field static final String DRIVER_VERSION = "0.4.5"
 
 metadata {
     definition(
@@ -18,6 +18,7 @@ metadata {
         attribute "cameraChannel", "string"
         attribute "cameraNumber", "number"
         attribute "cameraName", "string"
+        attribute "driverVersion", "string"
         attribute "managedStatus", "string"
         attribute "online", "string"
         attribute "lastEventCode", "string"
@@ -71,6 +72,7 @@ def configureCamera(String json) {
     sendEvent(name: "cameraChannel", value: state.cameraConfig.channel ?: "")
     sendEvent(name: "cameraNumber", value: safeInt(state.cameraConfig.channel))
     sendEvent(name: "cameraName", value: state.cameraConfig.cameraName)
+    sendEvent(name: "driverVersion", value: DRIVER_VERSION)
     sendEvent(name: "managedStatus", value: state.cameraConfig.enabled ? "enabled" : "disabled")
     if (state.cameraConfig.enabled == false) {
         sendEvent(name: "motion", value: "inactive")
@@ -206,6 +208,7 @@ private void scheduleMotionTimeout(Integer seconds) {
 }
 
 private void initializeDefaults() {
+    sendEvent(name: "driverVersion", value: DRIVER_VERSION)
     if (device.currentValue("motion") == null) {
         sendEvent(name: "motion", value: "inactive")
     }

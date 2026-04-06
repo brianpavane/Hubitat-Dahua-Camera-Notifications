@@ -2,6 +2,18 @@ import spock.lang.Specification
 
 class DahuaCameraDriverSpec extends Specification {
 
+    def "child exposes driver version on the device page"() {
+        given:
+        def harness = new HubitatScriptHarness()
+        def driver = harness.loadScript('DahuaCameraDriver.groovy')
+
+        when:
+        driver.installed()
+
+        then:
+        harness.device.currentValue('driverVersion') == '0.4.5'
+    }
+
     def "motion becomes active and then inactive for a configured event type"() {
         given:
         def harness = new HubitatScriptHarness()

@@ -3,7 +3,7 @@ import groovy.json.JsonSlurper
 import groovy.transform.Field
 import java.security.MessageDigest
 
-@Field static final String APP_VERSION = "0.4.4"
+@Field static final String APP_VERSION = "0.4.5"
 @Field static final List<String> DEFAULT_MOTION_EVENTS = [
     "VideoMotion",
     "SmartMotionHuman",
@@ -65,6 +65,16 @@ def initialize() {
 
 def mainPage() {
     dynamicPage(name: "mainPage", title: "Dahua NVR Sync", install: true, uninstall: true) {
+        section("Setup Flow") {
+            paragraph "Recommended first-time setup:"
+            paragraph "1. Enter the NVR host, port, username, and password below."
+            paragraph "2. Click Done once so Hubitat saves those values."
+            paragraph "3. Reopen the app and run Test Connection."
+            paragraph "4. Open Manage Cameras and click Discover / Re-sync Cameras."
+            paragraph "5. Review enabled cameras and custom names, then click Done again."
+            paragraph "6. Open the parent device and click Refresh if the event stream has not connected yet."
+        }
+
         section("Connection") {
             input "nvrHost", "text", title: "NVR IP or hostname", required: true
             input "nvrPort", "number", title: "HTTP port", required: true, defaultValue: 80
@@ -72,6 +82,7 @@ def mainPage() {
             input "nvrPassword", "password", title: "Password", required: true
             input "cameraNamePrefix", "text", title: "Global camera name prefix", required: false
             input "testConnection", "button", title: "Test Connection"
+            paragraph "Hubitat runs connection tests against saved settings. After entering or changing host, port, username, or password, click Done once, reopen the app, then run Test Connection."
             if (state.connectionTestResult) {
                 paragraph "Last test: ${state.connectionTestResult}" +
                     (state.connectionTestTime ? " (${state.connectionTestTime})" : "")
@@ -173,8 +184,9 @@ def appButtonHandler(String buttonName) {
 
 private void testConnection() {
     if (!settings.nvrHost || !settings.nvrUsername || !settings.nvrPassword) {
-        state.connectionTestResult = "Enter host, username, and password before testing"
+        state.connectionTestResult = "Host, username, and password are not saved yet. Click Done once, reopen the app, then run Test Connection."
         state.connectionTestTime = nowIso()
+        log.warn "Dahua connection test requested before Hubitat had saved host/username/password settings"
         return
     }
     updateParentMetadata([

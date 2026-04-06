@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.4.5] - 2026-04-06
+
+### Added
+
+- Main app page now includes a recommended first-time setup flow so the save, reopen, test, discover, and refresh sequence is visible directly in Hubitat.
+- Parent and child device pages now expose a visible `driverVersion` attribute so installed code versions can be confirmed from the device UI.
+
+### Changed
+
+- `Test Connection` missing-credentials guidance now explicitly explains that Hubitat runs against saved settings and that the user should click **Done**, reopen the app, and test again.
+
 ## [0.4.4] - 2026-04-05
 
 ### Changed

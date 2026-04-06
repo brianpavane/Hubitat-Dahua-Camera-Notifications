@@ -3,7 +3,7 @@ import groovy.json.JsonSlurper
 import groovy.transform.Field
 import java.security.MessageDigest
 
-@Field static final String DRIVER_VERSION = "0.4.4"
+@Field static final String DRIVER_VERSION = "0.4.5"
 @Field static final List<Integer> RECONNECT_SCHEDULE_SECONDS = [5, 15, 30, 60]
 @Field static final Integer MAX_STREAM_BUFFER_BYTES = 131072
 @Field static final Integer HANDSHAKE_TIMEOUT_SECONDS = 25
@@ -47,6 +47,7 @@ metadata {
         attribute "model", "string"
         attribute "serialNumber", "string"
         attribute "firmwareVersion", "string"
+        attribute "driverVersion", "string"
         attribute "lastDisconnectTime", "string"
         attribute "lastReconnectAttempt", "string"
         attribute "reconnectCount", "number"
@@ -122,6 +123,7 @@ def applyConnectionSettings(String json) {
     sendEvent(name: "serialNumber", value: config.serialNumber ?: "")
     sendEvent(name: "model", value: config.model ?: "Dahua NVR")
     sendEvent(name: "cameraCount", value: (config.cameraCount ?: 0) as Integer)
+    sendEvent(name: "driverVersion", value: DRIVER_VERSION)
     sendEvent(name: "lastRequestMode", value: state.connection.requestMode ?: "auto")
     sendEvent(name: "networkStatus", value: device.currentValue("networkStatus") ?: "disconnected")
     sendEvent(name: "eventStreamStatus", value: device.currentValue("eventStreamStatus") ?: "disconnected")
@@ -209,6 +211,7 @@ def closeEventStream() {
 
 def initializeParentState() {
     sanitizeConnectionState()
+    sendEvent(name: "driverVersion", value: DRIVER_VERSION)
     if (device.currentValue("networkStatus") == null) {
         sendEvent(name: "networkStatus", value: "disconnected")
     }
